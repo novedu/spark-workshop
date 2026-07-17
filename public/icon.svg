@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="灵光一闪">
+  <rect width="512" height="512" rx="96" fill="#111111"/>
+  <path d="M270 54 112 282h112l-30 176 172-248H250l20-156Z" fill="#f4c542"/>
+  <path d="M326 112c36 18 62 50 74 88" fill="none" stroke="#57b59b" stroke-width="28" stroke-linecap="round"/>
+</svg>

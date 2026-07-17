@@ -1,0 +1,17 @@
+{
+  "name": "灵光一闪 AI创意工坊",
+  "short_name": "灵光一闪",
+  "description": "从一句话灵感，到一套完整自洽的世界框架。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f3ea",
+  "theme_color": "#111111",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
