@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Sparkles, Trash2, Edit3, Clock, FileText } from "lucide-react";
+import { Plus, Sparkles, Trash2, Edit3, Clock, FileText, RotateCcw, Database } from "lucide-react";
 import { localStore } from "@/lib/storage";
 import type { Project } from "@/types/product";
 
@@ -14,6 +14,8 @@ export function ProjectList({ onSelectProject, onCreateProject }: ProjectListPro
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [confirmText, setConfirmText] = useState("");
 
   useEffect(() => {
     loadProjects();
@@ -29,6 +31,54 @@ export function ProjectList({ onSelectProject, onCreateProject }: ProjectListPro
       setError(err instanceof Error ? err.message : "加载项目失败");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResetPreference = async () => {
+    setError(null);
+    setResetMessage(null);
+    try {
+      await localStore.clearPreferences();
+      setResetMessage("口味画像已重置。刷新后会重新进入味觉测试。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "重置口味画像失败");
+    }
+  };
+
+  const handleClearProjects = async () => {
+    if (confirmText.trim() !== "清空项目") {
+      setError("请输入“清空项目”后再执行。");
+      return;
+    }
+
+    setError(null);
+    setResetMessage(null);
+    try {
+      await localStore.clearProjects();
+      await localStore.clearSnapshots();
+      setConfirmText("");
+      setResetMessage("项目和快照已清空。");
+      await loadProjects();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "清空项目失败");
+    }
+  };
+
+  const handleResetAll = async () => {
+    if (confirmText.trim() !== "重置全部") {
+      setError("请输入“重置全部”后再执行。");
+      return;
+    }
+
+    setError(null);
+    setResetMessage(null);
+    try {
+      await localStore.resetAll();
+      setProjects([]);
+      setConfirmText("");
+      setResetMessage("本地数据已全部重置。刷新后会回到新用户流程。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "重置本地数据失败");
     }
   };
 
@@ -86,6 +136,18 @@ export function ProjectList({ onSelectProject, onCreateProject }: ProjectListPro
           <Plus size={20} />
           新建项目
         </button>
+        <div className="local-data-panel compact" aria-label="本地数据管理">
+          <div className="local-data-heading">
+            <Database size={16} aria-hidden />
+            <span>本地数据</span>
+          </div>
+          <button className="secondary-button" type="button" onClick={handleResetPreference}>
+            <RotateCcw size={16} aria-hidden />
+            重置口味画像
+          </button>
+          {resetMessage && <p className="reset-message">{resetMessage}</p>}
+          {error && <p className="reset-error">{error}</p>}
+        </div>
       </div>
     );
   }
@@ -93,12 +155,45 @@ export function ProjectList({ onSelectProject, onCreateProject }: ProjectListPro
   return (
     <div className="project-list">
       <div className="project-list-header">
-        <h2>我的项目</h2>
-        <button onClick={onCreateProject} className="primary-button">
-          <Plus size={18} />
-          新建
-        </button>
+        <div>
+          <h2>我的项目</h2>
+          <p>{projects.length} 个本地项目</p>
+        </div>
+        <div className="project-list-actions">
+          <button onClick={onCreateProject} className="primary-button">
+            <Plus size={18} />
+            新建
+          </button>
+        </div>
       </div>
+      <section className="local-data-panel" aria-label="本地数据管理">
+        <div className="local-data-heading">
+          <Database size={16} aria-hidden />
+          <span>本地数据管理</span>
+        </div>
+        <p>清理只影响当前浏览器的 IndexedDB 数据。</p>
+        <div className="local-data-controls">
+          <button className="secondary-button" type="button" onClick={handleResetPreference}>
+            <RotateCcw size={16} aria-hidden />
+            重置口味画像
+          </button>
+          <input
+            aria-label="清理确认文本"
+            value={confirmText}
+            onChange={(event) => setConfirmText(event.target.value)}
+            placeholder="输入：清空项目 / 重置全部"
+          />
+          <button className="secondary-button danger" type="button" onClick={handleClearProjects}>
+            <Trash2 size={16} aria-hidden />
+            清空项目
+          </button>
+          <button className="secondary-button danger" type="button" onClick={handleResetAll}>
+            <Trash2 size={16} aria-hidden />
+            重置全部
+          </button>
+        </div>
+        {resetMessage && <p className="reset-message">{resetMessage}</p>}
+      </section>
       <div className="project-grid">
         {projects.map((project) => (
           <div

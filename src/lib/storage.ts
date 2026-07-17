@@ -76,6 +76,16 @@ export const localStore = {
       store.put({ ...preference, id: "current" });
     }),
 
+  deletePreference: async () =>
+    withStore<void>("preferences", "readwrite", (store) => {
+      store.delete("current");
+    }),
+
+  clearPreferences: async () =>
+    withStore<void>("preferences", "readwrite", (store) => {
+      store.clear();
+    }),
+
   listProjects: async () =>
     withStore<Project[]>("projects", "readonly", (store) => store.getAll()).then((projects) =>
       projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -94,6 +104,11 @@ export const localStore = {
       store.delete(id);
     }),
 
+  clearProjects: async () =>
+    withStore<void>("projects", "readwrite", (store) => {
+      store.clear();
+    }),
+
   saveSnapshot: async (snapshot: ProjectSnapshot) =>
     withStore<void>("snapshots", "readwrite", (store) => {
       store.put(snapshot);
@@ -109,5 +124,18 @@ export const localStore = {
   deleteSnapshot: async (id: string) =>
     withStore<void>("snapshots", "readwrite", (store) => {
       store.delete(id);
-    })
+    }),
+
+  clearSnapshots: async () =>
+    withStore<void>("snapshots", "readwrite", (store) => {
+      store.clear();
+    }),
+
+  resetAll: async () => {
+    await Promise.all([
+      localStore.clearPreferences(),
+      localStore.clearProjects(),
+      localStore.clearSnapshots()
+    ]);
+  }
 };

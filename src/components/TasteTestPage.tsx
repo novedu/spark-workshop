@@ -46,6 +46,7 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
   const [choices, setChoices] = useState<TasteChoice[]>([]);
   const [preference, setPreference] = useState<UserPreference | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (phase === "testing" && samples.length === 0) {
@@ -55,22 +56,31 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
 
   const loadSamples = async () => {
     setLoading(true);
+    setError(null);
     try {
       const result = await llmProvider.generateTasteSamples();
       setSamples(result);
     } catch (err) {
       console.error("Failed to load taste samples:", err);
+      setError("样本生成失败，可以重试，或先跳过测试进入创作。");
     } finally {
       setLoading(false);
     }
   };
 
   const handleStart = () => {
+    setSamples([]);
+    setCurrentIndex(0);
+    setChoices([]);
+    setPreference(null);
+    setError(null);
     setPhase("testing");
   };
 
   const handleChoice = (liked: boolean) => {
     const sample = samples[currentIndex];
+    if (!sample) return;
+
     const newChoices = [...choices, { sampleId: sample.id, liked }];
     setChoices(newChoices);
 
@@ -83,6 +93,7 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
 
   const analyzePreference = async (allChoices: TasteChoice[]) => {
     setPhase("analyzing");
+    setError(null);
     try {
       const result = await llmProvider.analyzeTastePreference(allChoices);
       setPreference(result);
@@ -90,8 +101,18 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
       setPhase("result");
     } catch (err) {
       console.error("Failed to analyze preference:", err);
+      setError("口味画像分析失败，你的选择还在，可以重试分析。");
       setPhase("result");
     }
+  };
+
+  const handleRetryAnalyze = () => {
+    if (choices.length === 0) {
+      handleStart();
+      return;
+    }
+
+    analyzePreference(choices);
   };
 
   const handleComplete = () => {
@@ -155,6 +176,21 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
             <div className="spinner" />
             <p>正在生成样本...</p>
           </div>
+        ) : error ? (
+          <div className="sample-error">
+            <XCircle size={36} aria-hidden />
+            <h2>样本暂时没生成出来</h2>
+            <p>{error}</p>
+            <div className="empty-actions">
+              <button className="primary-button" type="button" onClick={loadSamples}>
+                <Sparkles size={18} />
+                重试生成
+              </button>
+              <button className="secondary-button" type="button" onClick={onSkip}>
+                跳过测试
+              </button>
+            </div>
+          </div>
         ) : currentSample ? (
           <div className="sample-card">
             <div className="sample-label">{currentSample.label}</div>
@@ -185,7 +221,22 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
               )}
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="sample-error">
+            <Sparkles size={36} aria-hidden />
+            <h2>还没有可用样本</h2>
+            <p>可以重新生成样本，或先跳过测试进入项目列表。</p>
+            <div className="empty-actions">
+              <button className="primary-button" type="button" onClick={loadSamples}>
+                <Sparkles size={18} />
+                生成样本
+              </button>
+              <button className="secondary-button" type="button" onClick={onSkip}>
+                跳过测试
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -250,6 +301,27 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
             </button>
             <button className="secondary-button" onClick={handleStart}>
               重新测试
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "result") {
+    return (
+      <div className="taste-test-container result-phase">
+        <div className="sample-error">
+          <XCircle size={40} aria-hidden />
+          <h1>口味画像暂时没算出来</h1>
+          <p>{error || "分析过程被中断，可以重试分析，或先跳过测试继续使用。"}</p>
+          <div className="empty-actions">
+            <button className="primary-button" type="button" onClick={handleRetryAnalyze}>
+              <Sparkles size={18} />
+              重试分析
+            </button>
+            <button className="secondary-button" type="button" onClick={onSkip}>
+              跳过测试
             </button>
           </div>
         </div>

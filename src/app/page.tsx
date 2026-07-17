@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { RefreshCw } from "lucide-react";
 import { CreativeWorkbench } from "@/components/CreativeWorkbench";
 import { ProjectList } from "@/components/ProjectList";
+import { StorageSmokePanel } from "@/components/StorageSmokePanel";
 import { TasteTestPage } from "@/components/TasteTestPage";
 import { WelcomePage } from "@/components/WelcomePage";
 import { localStore } from "@/lib/storage";
@@ -14,6 +16,7 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialError, setInitialError] = useState<string | null>(null);
 
   useEffect(() => {
     checkInitialStatus();
@@ -21,6 +24,7 @@ export default function Home() {
 
   const checkInitialStatus = async () => {
     setLoading(true);
+    setInitialError(null);
     try {
       const preference = await localStore.getPreference();
       const projects = await localStore.listProjects();
@@ -34,6 +38,7 @@ export default function Home() {
       }
     } catch (err) {
       console.warn("Failed to check initial status:", err);
+      setInitialError("本地数据读取失败，可以重试或先进入项目列表。");
       setViewMode("list");
     } finally {
       setLoading(false);
@@ -53,6 +58,10 @@ export default function Home() {
   const handleBack = () => {
     setViewMode("list");
     setSelectedProject(null);
+  };
+
+  const handleProjectSaved = (project: Project) => {
+    setSelectedProject(project);
   };
 
   const handleWelcomeStart = () => {
@@ -75,6 +84,7 @@ export default function Home() {
   if (loading) {
     return (
       <div className="app-container">
+        <StorageSmokePanel />
         <div className="project-list-loading">
           <div className="loading-spinner" />
           <p>加载中...</p>
@@ -83,20 +93,60 @@ export default function Home() {
     );
   }
 
+  if (initialError) {
+    return (
+      <div className="app-container">
+        <StorageSmokePanel />
+        <div className="project-list-error">
+          <p>{initialError}</p>
+          <div className="empty-actions">
+            <button onClick={checkInitialStatus} className="primary-button" type="button">
+              <RefreshCw size={18} />
+              重试
+            </button>
+            <button onClick={() => setInitialError(null)} className="secondary-button" type="button">
+              进入项目列表
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (viewMode === "welcome") {
-    return <WelcomePage onStart={handleWelcomeStart} onSkip={handleWelcomeSkip} />;
+    return (
+      <>
+        <StorageSmokePanel />
+        <WelcomePage onStart={handleWelcomeStart} onSkip={handleWelcomeSkip} />
+      </>
+    );
   }
 
   if (viewMode === "taste-test") {
-    return <TasteTestPage onComplete={handleTasteTestComplete} onSkip={handleTasteTestSkip} />;
+    return (
+      <>
+        <StorageSmokePanel />
+        <TasteTestPage onComplete={handleTasteTestComplete} onSkip={handleTasteTestSkip} />
+      </>
+    );
   }
 
   if (viewMode === "workbench") {
-    return <CreativeWorkbench project={selectedProject} onBack={handleBack} />;
+    return (
+      <>
+        <StorageSmokePanel />
+        <CreativeWorkbench
+          project={selectedProject}
+          onBack={handleBack}
+          onProjectSaved={handleProjectSaved}
+        />
+      </>
+    );
   }
 
   return (
     <div className="app-container">
+      <StorageSmokePanel />
       <ProjectList
         onSelectProject={handleSelectProject}
         onCreateProject={handleCreateProject}

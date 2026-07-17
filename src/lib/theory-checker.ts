@@ -1,4 +1,4 @@
-import type { Project, TheoryCheckResult, TheoryDefinition, TheoryId, TheorySeverity } from "@/types/product";
+import type { OutlineNode, Project, TheoryCheckResult, TheoryDefinition, TheoryId, TheorySeverity } from "@/types/product";
 import { v1Theories, getTheoryById } from "./theory-library";
 import { llmProvider } from "./llm";
 
@@ -10,7 +10,11 @@ export type TheoryCheckWithExplanation = TheoryCheckResult & {
   canIgnore: boolean;
 };
 
-const checkT01 = (project: Project): TheoryCheckResult | null => {
+type TheoryCheckContext = {
+  outlineNodes: OutlineNode[];
+};
+
+const checkT01 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const act1 = project.outlineNodes.find((n) => n.id === "act-1");
   if (!act1 || !act1.content?.trim()) {
     return {
@@ -33,7 +37,7 @@ const checkT01 = (project: Project): TheoryCheckResult | null => {
   return null;
 };
 
-const checkT02 = (project: Project): TheoryCheckResult | null => {
+const checkT02 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const protagonist = project.outlineNodes.find((n) => n.id === "protagonist");
   if (!protagonist || !protagonist.content?.trim()) {
     return {
@@ -56,7 +60,7 @@ const checkT02 = (project: Project): TheoryCheckResult | null => {
   return null;
 };
 
-const checkT03 = (project: Project): TheoryCheckResult | null => {
+const checkT03 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const conflict = project.outlineNodes.find((n) => n.id === "core-conflict");
   if (!conflict || !conflict.content?.trim()) {
     return {
@@ -79,7 +83,7 @@ const checkT03 = (project: Project): TheoryCheckResult | null => {
   return null;
 };
 
-const checkT04 = (project: Project): TheoryCheckResult | null => {
+const checkT04 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const foreshadowing = project.outlineNodes.find((n) => n.id === "foreshadowing");
   if (!foreshadowing || !foreshadowing.content?.trim()) {
     return {
@@ -90,10 +94,19 @@ const checkT04 = (project: Project): TheoryCheckResult | null => {
       rescueOptions: ["列出已埋下的设定", "规划回收节点", "检查是否有未回收的伏笔"]
     };
   }
+  if (!foreshadowing.content.includes("回收") && !foreshadowing.content.includes("兑现") && !foreshadowing.content.includes("揭晓")) {
+    return {
+      theoryId: "T04",
+      severity: "warning",
+      location: "伏笔与回收",
+      message: "伏笔已有记录，但还没有看到明确的回收安排。",
+      rescueOptions: ["标注第几幕回收", "写清揭晓方式", "把伏笔和核心冲突绑定"]
+    };
+  }
   return null;
 };
 
-const checkT07 = (project: Project): TheoryCheckResult | null => {
+const checkT07 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const act2 = project.outlineNodes.find((n) => n.id === "act-2");
   if (!act2 || !act2.content?.trim()) {
     return {
@@ -116,7 +129,7 @@ const checkT07 = (project: Project): TheoryCheckResult | null => {
   return null;
 };
 
-const checkT11 = (project: Project): TheoryCheckResult | null => {
+const checkT11 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const power = project.outlineNodes.find((n) => n.id === "golden-finger");
   if (!power || !power.content?.trim()) {
     return {
@@ -139,7 +152,7 @@ const checkT11 = (project: Project): TheoryCheckResult | null => {
   return null;
 };
 
-const checkT12 = (project: Project): TheoryCheckResult | null => {
+const checkT12 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const power = project.outlineNodes.find((n) => n.id === "golden-finger");
   if (!power || !power.content?.trim()) {
     return null;
@@ -158,8 +171,27 @@ const checkT12 = (project: Project): TheoryCheckResult | null => {
   return null;
 };
 
-const checkT13 = (project: Project): TheoryCheckResult | null => {
+const checkT13 = (project: TheoryCheckContext): TheoryCheckResult | null => {
+  const world = project.outlineNodes.find((n) => n.id === "world");
   const antagonist = project.outlineNodes.find((n) => n.id === "antagonist");
+  if (!world || !world.content?.trim()) {
+    return {
+      theoryId: "T13",
+      severity: "warning",
+      location: "世界生态",
+      message: "世界观为空，势力、规则和职业还没有落到生态位上。",
+      rescueOptions: ["补充主要势力", "写清世界规则", "说明关键职业或资源的存在理由"]
+    };
+  }
+  if (!world.content.includes("势力") && !world.content.includes("规则") && !world.content.includes("资源") && !world.content.includes("职业") && !world.content.includes("生态")) {
+    return {
+      theoryId: "T13",
+      severity: "warning",
+      location: "世界生态",
+      message: "世界观已有概念，但缺少势力、资源或规则的生态位置。",
+      rescueOptions: ["补一组主要势力", "明确稀缺资源", "说明规则如何影响普通人和主角"]
+    };
+  }
   if (!antagonist || !antagonist.content?.trim()) {
     return {
       theoryId: "T13",
@@ -181,7 +213,7 @@ const checkT13 = (project: Project): TheoryCheckResult | null => {
   return null;
 };
 
-const CHECKERS: Record<TheoryId, (project: Project) => TheoryCheckResult | null> = {
+const CHECKERS: Record<TheoryId, (project: TheoryCheckContext) => TheoryCheckResult | null> = {
   T01: checkT01,
   T02: checkT02,
   T03: checkT03,
@@ -214,7 +246,7 @@ const CHECKERS: Record<TheoryId, (project: Project) => TheoryCheckResult | null>
   T30: () => null
 };
 
-export const runTheoryChecks = (project: Project): TheoryCheckResult[] => {
+export const runTheoryChecks = (project: TheoryCheckContext): TheoryCheckResult[] => {
   return v1Theories
     .map((theory) => {
       const checker = CHECKERS[theory.id];
