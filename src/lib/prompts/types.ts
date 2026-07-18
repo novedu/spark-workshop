@@ -2,6 +2,7 @@ export type PromptTemplateType =
   | "taste.generate-samples"
   | "taste.analyze-preference"
   | "seed.ignite"
+  | "outline.enhance-node"
   | "theory.explain-check"
   | "setting.extract-keywords";
 

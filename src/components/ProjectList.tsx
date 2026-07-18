@@ -1,16 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Sparkles, Trash2, Edit3, Clock, FileText, RotateCcw, Database } from "lucide-react";
+import { Plus, Sparkles, Trash2, Edit3, Clock, FileText, RotateCcw, Database, Settings, ClipboardCheck } from "lucide-react";
 import { localStore } from "@/lib/storage";
 import type { Project } from "@/types/product";
 
 interface ProjectListProps {
   onSelectProject: (project: Project) => void;
   onCreateProject: () => void;
+  onOpenAiSettings: () => void;
+  onOpenTheoryEval: () => void;
 }
 
-export function ProjectList({ onSelectProject, onCreateProject }: ProjectListProps) {
+export function ProjectList({ onSelectProject, onCreateProject, onOpenAiSettings, onOpenTheoryEval }: ProjectListProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,10 +134,25 @@ export function ProjectList({ onSelectProject, onCreateProject }: ProjectListPro
         </div>
         <h2>还没有项目</h2>
         <p>输入一句灵感，开始你的第一个创意之旅</p>
-        <button onClick={onCreateProject} className="primary-button">
-          <Plus size={20} />
-          新建项目
-        </button>
+        <div className="project-empty-actions">
+          <button onClick={onCreateProject} className="primary-button">
+            <Plus size={20} />
+            新建项目
+          </button>
+          <button onClick={onOpenAiSettings} className="secondary-button" type="button">
+            <Settings size={18} aria-hidden />
+            AI 设置
+          </button>
+          <button
+            onClick={onOpenTheoryEval}
+            className="secondary-button"
+            type="button"
+            title="打开理论诊断样例验收"
+          >
+            <ClipboardCheck size={18} aria-hidden />
+            理论样例
+          </button>
+        </div>
         <div className="local-data-panel compact" aria-label="本地数据管理">
           <div className="local-data-heading">
             <Database size={16} aria-hidden />
@@ -160,6 +177,19 @@ export function ProjectList({ onSelectProject, onCreateProject }: ProjectListPro
           <p>{projects.length} 个本地项目</p>
         </div>
         <div className="project-list-actions">
+          <button onClick={onOpenAiSettings} className="secondary-button" type="button">
+            <Settings size={16} aria-hidden />
+            AI 设置
+          </button>
+          <button
+            onClick={onOpenTheoryEval}
+            className="secondary-button"
+            type="button"
+            title="打开理论诊断样例验收"
+          >
+            <ClipboardCheck size={16} aria-hidden />
+            理论样例
+          </button>
           <button onClick={onCreateProject} className="primary-button">
             <Plus size={18} />
             新建

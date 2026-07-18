@@ -1,4 +1,6 @@
 import type { Project } from "@/types/product";
+import { getNodeEmotionGoal } from "./emotion-goals";
+import { runQualityChecks } from "./quality-checker";
 
 const riskLabels: Record<Project["similarSettingHints"][number]["riskLevel"], string> = {
   low: "低风险",
@@ -41,6 +43,9 @@ export const buildProjectMarkdown = (project: Project) => {
     `- 方案标题：${project.selectedScheme.title || "未命名方案"}`,
     `- 方向类型：${project.selectedScheme.type}`,
     `- 钩子：${project.selectedScheme.tagline || "待补充"}`,
+    `- 开篇钩子：${project.selectedScheme.storyHook || "待补充"}`,
+    `- Premise：${project.selectedScheme.premise || "待补充"}`,
+    `- 故事引擎：${project.selectedScheme.storyEngine || "待补充"}`,
     `- 情绪曲线：${project.selectedScheme.emotionCurve || "待补充"}`,
     "",
     "## 大纲节点",
@@ -48,11 +53,15 @@ export const buildProjectMarkdown = (project: Project) => {
   ];
 
   for (const node of nodes) {
+    const emotionGoal = getNodeEmotionGoal(node);
     lines.push(`### ${node.title}`);
     if (node.metadata?.chapterRange) {
       lines.push("");
       lines.push(`章节范围：${node.metadata.chapterRange}`);
     }
+    lines.push("");
+    lines.push(`读者情绪目标：${emotionGoal.emotion} / 强度 ${emotionGoal.intensity}`);
+    lines.push(`读者承诺：${emotionGoal.promise}`);
     lines.push("");
     lines.push(normalizeContent(node.content));
     lines.push("");
@@ -77,6 +86,20 @@ export const buildProjectMarkdown = (project: Project) => {
       lines.push(`  - ${check.message}`);
       if (check.rescueOptions.length > 0) {
         lines.push(`  - 修改方向：${check.rescueOptions.join("；")}`);
+      }
+    }
+    lines.push("");
+  }
+
+  const qualityChecks = runQualityChecks({ outlineNodes: nodes });
+  if (qualityChecks.length > 0) {
+    lines.push("## 网文质检清单");
+    lines.push("");
+    for (const check of qualityChecks) {
+      lines.push(`- ${check.title} · ${check.location} · ${check.severity}`);
+      lines.push(`  - ${check.message}`);
+      if (check.suggestions.length > 0) {
+        lines.push(`  - 修改方向：${check.suggestions.join("；")}`);
       }
     }
     lines.push("");

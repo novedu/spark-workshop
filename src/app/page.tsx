@@ -2,15 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { RefreshCw } from "lucide-react";
+import { AIProviderSettings } from "@/components/AIProviderSettings";
 import { CreativeWorkbench } from "@/components/CreativeWorkbench";
 import { ProjectList } from "@/components/ProjectList";
 import { StorageSmokePanel } from "@/components/StorageSmokePanel";
 import { TasteTestPage } from "@/components/TasteTestPage";
+import { TheoryEvalWorkbench } from "@/components/TheoryEvalWorkbench";
 import { WelcomePage } from "@/components/WelcomePage";
 import { localStore } from "@/lib/storage";
 import type { Project, UserPreference } from "@/types/product";
 
-type ViewMode = "welcome" | "taste-test" | "list" | "workbench";
+type ViewMode = "welcome" | "taste-test" | "list" | "workbench" | "ai-settings" | "theory-eval";
 
 export default function Home() {
   const [viewMode, setViewMode] = useState<ViewMode>("list");
@@ -144,12 +146,32 @@ export default function Home() {
     );
   }
 
+  if (viewMode === "ai-settings") {
+    return (
+      <div className="app-container wide">
+        <StorageSmokePanel />
+        <AIProviderSettings onBack={() => setViewMode("list")} />
+      </div>
+    );
+  }
+
+  if (viewMode === "theory-eval") {
+    return (
+      <>
+        <StorageSmokePanel />
+        <TheoryEvalWorkbench onBack={() => setViewMode("list")} />
+      </>
+    );
+  }
+
   return (
     <div className="app-container">
       <StorageSmokePanel />
       <ProjectList
         onSelectProject={handleSelectProject}
         onCreateProject={handleCreateProject}
+        onOpenAiSettings={() => setViewMode("ai-settings")}
+        onOpenTheoryEval={() => setViewMode("theory-eval")}
       />
     </div>
   );

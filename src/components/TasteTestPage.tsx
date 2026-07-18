@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Heart, XCircle, Sparkles, ChevronLeft, ChevronRight, CheckCircle, Clock, Zap, Brain, Waves } from "lucide-react";
+import { getAiRecoveryCopy } from "@/lib/ai-recovery-copy";
+import { shouldConfirmAiOperation } from "@/lib/ai-usage-settings";
 import { llmProvider } from "@/lib/llm";
 import { localStore } from "@/lib/storage";
 import type { TasteSample, TasteChoice } from "@/lib/llm/types";
@@ -55,6 +57,14 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
   }, [phase, samples.length]);
 
   const loadSamples = async () => {
+    if (
+      shouldConfirmAiOperation() &&
+      !window.confirm("生成味觉样本可能调用真实 AI，并消耗 token。继续吗？")
+    ) {
+      setPhase("intro");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -62,7 +72,7 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
       setSamples(result);
     } catch (err) {
       console.error("Failed to load taste samples:", err);
-      setError("样本生成失败，可以重试，或先跳过测试进入创作。");
+      setError(getAiRecoveryCopy(err, "味觉样本生成").message);
     } finally {
       setLoading(false);
     }
@@ -92,6 +102,15 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
   };
 
   const analyzePreference = async (allChoices: TasteChoice[]) => {
+    if (
+      shouldConfirmAiOperation() &&
+      !window.confirm("生成口味画像可能调用真实 AI，并消耗 token。继续吗？")
+    ) {
+      setError("已取消口味画像分析，你的选择还在，可以继续或跳过。");
+      setPhase("testing");
+      return;
+    }
+
     setPhase("analyzing");
     setError(null);
     try {
@@ -101,7 +120,7 @@ export function TasteTestPage({ onComplete, onSkip }: TasteTestPageProps) {
       setPhase("result");
     } catch (err) {
       console.error("Failed to analyze preference:", err);
-      setError("口味画像分析失败，你的选择还在，可以重试分析。");
+      setError(getAiRecoveryCopy(err, "口味画像分析").message);
       setPhase("result");
     }
   };

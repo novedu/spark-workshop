@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "acceptance:v1": "node scripts/run-v1-acceptance-smoke.mjs",
     "start": "next start",
+    "theory:eval": "node scripts/run-theory-eval.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

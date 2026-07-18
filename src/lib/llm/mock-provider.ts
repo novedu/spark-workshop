@@ -50,17 +50,23 @@ const buildScheme = (
   seedText: string
 ): WorldScheme => {
   const coreConcept = `围绕“${seedText}”展开：主角发现这个意象不是偶然灵感，而是一套隐藏世界规则的入口。越深入规则，越要付出身份、记忆或关系上的代价。`;
+  const storyHook = `开局主角被迫用一段最珍贵的记忆，换取进入“${seedText}”真相的门票。`;
+  const premise = "一个不想被牺牲的底层主角，必须利用禁忌规则反抗垄断真相的旧势力，失败就会失去自我记忆。";
+  const storyEngine = "每次变强都要交换记忆、关系或身份，胜利越大，主角越接近真相也越不像原来的自己。";
 
   return {
     id,
     type,
     title,
     tagline,
+    storyHook,
+    premise,
+    storyEngine,
     coreConcept,
     powerSystem: "以认知、代价和资源交换推动成长，每次升级都必须失去某种确定性。",
     conflictType: "自我保存与世界真相之间的冲突",
     emotionCurve: type === "brainhole" ? "脑洞密集，危机递进" : "压迫开局，中段爆发",
-    similarSettingHints: getSimilarSettingHints(`${seedText} ${coreConcept}`)
+    similarSettingHints: getSimilarSettingHints(`${seedText} ${storyHook} ${premise} ${storyEngine} ${coreConcept}`)
   };
 };
 
@@ -101,6 +107,34 @@ export const mockLlmProvider: LlmProvider = {
     };
   },
 
+  enhanceOutlineNode: async ({ node }) => {
+    buildPrompt("outline.enhance-node", { additionalContext: { node } });
+
+    const contentByKind: Record<string, string> = {
+      protagonist:
+        "姓名：沈砚。\n底层欲望：他不是单纯想变强，而是想证明自己不是可以被家族随手牺牲的废子。\n开场困境：开局被安排顶替嫡系去送死，所有人都默认他没有选择权。\n成长弧线：从只想活下去，到学会利用规则、重建自己的势力，最后主动选择承担更大的代价。",
+      antagonist:
+        "阶段压力源：开局先用资源方、宗门管事、资本团队或家族长辈压住主角，不急着让终极反派完整登场。\n目标：他们要维护现有资源分配，让主角继续当可替代的牺牲品。\n压迫方式：卡身份、断资源、制造舆论或逼主角签下不公平约束。\n升级关系：主角每次破局都会暴露更高层利益链，后续再逐步显出真正反派。",
+      goldenFinger:
+        "来源：能力来自一次失败的献祭残留，主角不是被选中，而是侥幸没死。\n代价：每次使用都会透支一段记忆或人际关系中的信任。\n限制：只能在明确承受代价后发动，不能无成本连续使用。\n升级边界：能力越强，失去的东西越私人，逼主角在爽点和人性之间做选择。",
+      conflict:
+        "主角目标：摆脱被牺牲的命运，并夺回选择自己人生的权利。\n现实阻碍：旧势力掌握资源分配和身份规则，主角越反抗越会被贴上叛逆标签。\n失败代价：一旦失败，他会失去仅剩的庇护者，也会证明底层永远无法翻身。\n升级方式：每次胜利都会撬动一层旧秩序，引出更高层的敌人。",
+      act:
+        "本卷目标：让主角在一个清晰地图里完成阶段升级。\n阶段压力源：资源被上层垄断，主角必须先被压制再找到破局口。\n小高潮：用一次公开反击兑现前面积累的憋屈，同时收获新资源。\n卷尾钩子：胜利暴露更高层利益链，引出下一卷地图。",
+      foreshadowing:
+        "埋线：开局出现一枚无法解释的旧印记，只有压力源看到后短暂失态。\n回收：开局篇末尾揭晓印记与主角能力来源有关。\n引爆：中段篇让印记暴露主角真实身份，把个人危机升级成势力追杀。",
+      world:
+        "核心规则：资源被上层势力按身份分配，底层只能拿到被污染的残余。\n主要势力：旧族、学院、黑市三方互相制衡，但都不希望底层拥有稳定上升通道。\n稀缺资源：干净的修炼资源和身份名额决定一个人能否被承认为真正的强者。\n利益冲突：主角的能力会打破资源垄断，因此天然会被既得利益者围剿。"
+    };
+
+    return {
+      content:
+        contentByKind[node.kind] ||
+        "当前节点可以补成三层：先写清目标，再写阻碍，最后写失败代价或回收方式。把设定落到一个具体剧情选择上，读者才会觉得它不是资料卡。",
+      suggestions: ["保留已有设定方向", "补齐目标、阻碍和代价", "把补充内容改成你的角色名和专有名词"]
+    };
+  },
+
   explainTheoryCheck: async (result) => {
     buildPrompt("theory.explain-check", { additionalContext: { result } });
     return {
@@ -109,7 +143,7 @@ export const mockLlmProvider: LlmProvider = {
       theoryExplanation: "V1 先由规则发现结构缺口，再由模型把问题解释成作者能直接修改的建议。",
       suggestions: [
         "补一个明确的代价或限制，让设定不只是开挂。",
-        "把这个问题提前埋到第一幕，后面再回收。",
+        "把这个问题提前埋到开局篇，后面再回收。",
         "给反派或势力一个同样合理的目标，避免只当工具人。"
       ],
       canIgnore: result.status !== "fail"

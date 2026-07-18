@@ -1,4 +1,6 @@
 import type {
+  OutlineNodeEnhancementInput,
+  OutlineNodeEnhancementOutput,
   RuleCheckResult,
   SeedIgnitionInput,
   SeedIgnitionOutput,
@@ -22,6 +24,7 @@ export type LlmProvider = {
   generateTasteSamples: () => Promise<TasteSample[]>;
   analyzeTastePreference: (choices: TasteChoice[]) => Promise<UserPreference>;
   igniteSeed: (input: SeedIgnitionInput) => Promise<SeedIgnitionOutput>;
+  enhanceOutlineNode: (input: OutlineNodeEnhancementInput) => Promise<OutlineNodeEnhancementOutput>;
   explainTheoryCheck: (result: RuleCheckResult) => Promise<TheorySuggestion>;
   extractSettingKeywords: (text: string) => Promise<string[]>;
 };

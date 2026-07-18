@@ -5,7 +5,7 @@ export type IsoDateString = string;
 export type SchemeType = "preference" | "contrast" | "brainhole";
 export type RiskLevel = "low" | "medium" | "high";
 export type ProjectSnapshotReason = "manualSave" | "aiGenerate" | "theoryFix";
-export type EmotionType = "爽" | "虐" | "爽虐交织" | "温馨" | "悬疑";
+export type EmotionType = "爽" | "虐" | "爽虐交织" | "温馨" | "悬疑" | "期待" | "紧张" | "心疼" | "好奇" | "压迫" | "热血";
 export type TheoryId =
   | "T01"
   | "T02"
@@ -52,6 +52,9 @@ export type WorldScheme = {
   type: SchemeType;
   title: string;
   tagline: string;
+  storyHook?: string;
+  premise?: string;
+  storyEngine?: string;
   coreConcept: string;
   powerSystem: string;
   conflictType: string;
@@ -66,6 +69,12 @@ export type SeedIgnitionInput = {
 
 export type SeedIgnitionOutput = {
   schemes: WorldScheme[];
+  llmMeta?: LlmResultMeta;
+};
+
+export type LlmResultMeta = {
+  source: "llm" | "mock" | "cache";
+  fallbackReason?: string;
 };
 
 export type TheoryCategory =
@@ -77,6 +86,13 @@ export type TheoryCategory =
   | "innovation";
 
 export type TheorySeverity = "pass" | "warning" | "fail";
+export type TheoryMatchLevel = "needs_fix" | "suggest_check" | "hidden";
+export type TheoryMatchReason =
+  | "rule_fail"
+  | "rule_warning"
+  | "node_relevant"
+  | "keyword_hit"
+  | "content_gap";
 
 export type TheoryDefinition = {
   id: TheoryId;
@@ -93,6 +109,28 @@ export type TheoryCheckResult = {
   location: string;
   message: string;
   rescueOptions: string[];
+};
+
+export type TheoryMatch = {
+  theoryId: V1TheoryId;
+  level: TheoryMatchLevel;
+  severity?: TheorySeverity;
+  location: string;
+  reasons: TheoryMatchReason[];
+  message: string;
+  rescueOptions: string[];
+  score: number;
+};
+
+export type TheorySuggestionStateKind = "ignored" | "resolved";
+
+export type TheorySuggestionState = {
+  theoryId: V1TheoryId;
+  state: TheorySuggestionStateKind;
+  updatedAt: IsoDateString;
+  nodeId?: string;
+  contentSignature?: string;
+  checkSignature?: string;
 };
 
 export type SimilarSettingHint = {
@@ -117,6 +155,7 @@ export type OutlineNode = {
   kind: OutlineNodeKind;
   title: string;
   content: string;
+  emotionGoal?: ReaderEmotionGoal;
   order: number;
   metadata?: Record<string, string | number | boolean | string[]>;
 };
@@ -128,6 +167,7 @@ export type Project = {
   selectedScheme: WorldScheme;
   outlineNodes: OutlineNode[];
   theoryChecks: TheoryCheckResult[];
+  theorySuggestionStates?: Record<string, TheorySuggestionState>;
   similarSettingHints: SimilarSettingHint[];
   createdAt: IsoDateString;
   updatedAt: IsoDateString;
@@ -155,6 +195,18 @@ export type TheorySuggestion = {
   theoryExplanation: string;
   suggestions: string[];
   canIgnore: boolean;
+  llmMeta?: LlmResultMeta;
+};
+
+export type OutlineNodeEnhancementInput = {
+  node: OutlineNode;
+  outlineNodes: OutlineNode[];
+};
+
+export type OutlineNodeEnhancementOutput = {
+  content: string;
+  suggestions: string[];
+  llmMeta?: LlmResultMeta;
 };
 
 export type EmotionBeat = {
@@ -162,5 +214,11 @@ export type EmotionBeat = {
   label: string;
   chapterHint: string;
   emotion: EmotionType;
+  intensity: 1 | 2 | 3 | 4 | 5;
+};
+
+export type ReaderEmotionGoal = {
+  emotion: EmotionType;
+  promise: string;
   intensity: 1 | 2 | 3 | 4 | 5;
 };

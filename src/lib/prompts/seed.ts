@@ -1,7 +1,7 @@
 import type { SeedIgnitionInput } from "@/types/product";
 import { buildPrompt } from "./index";
 
-export const seedPromptVersion = "seed-ignition-v1.0";
+export const seedPromptVersion = "seed-ignition-v1.1";
 
 export function buildSeedIgnitionPrompt(input: SeedIgnitionInput) {
   const result = buildPrompt("seed.ignite", {
