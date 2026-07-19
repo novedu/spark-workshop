@@ -1,4 +1,5 @@
 import type { Project, ProjectSnapshot, UserPreference } from "@/types/product";
+import { ensureWorldState } from "./world-state";
 import { DB_NAME, DB_VERSION, stores } from "./storage/schema";
 
 type StoreValueMap = {
@@ -6,6 +7,11 @@ type StoreValueMap = {
   projects: Project;
   snapshots: ProjectSnapshot;
 };
+
+const normalizeProject = (project: Project): Project => ({
+  ...project,
+  worldState: ensureWorldState(project)
+});
 
 const openDatabase = () =>
   new Promise<IDBDatabase>((resolve, reject) => {
@@ -88,15 +94,17 @@ export const localStore = {
 
   listProjects: async () =>
     withStore<Project[]>("projects", "readonly", (store) => store.getAll()).then((projects) =>
-      projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      projects.map(normalizeProject).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     ),
 
   getProject: async (id: string) =>
-    withStore<Project | undefined>("projects", "readonly", (store) => store.get(id)),
+    withStore<Project | undefined>("projects", "readonly", (store) => store.get(id)).then((project) =>
+      project ? normalizeProject(project) : undefined
+    ),
 
   saveProject: async (project: Project) =>
     withStore<void>("projects", "readwrite", (store) => {
-      store.put(project);
+      store.put(normalizeProject(project));
     }),
 
   deleteProject: async (id: string) =>
@@ -111,13 +119,20 @@ export const localStore = {
 
   saveSnapshot: async (snapshot: ProjectSnapshot) =>
     withStore<void>("snapshots", "readwrite", (store) => {
-      store.put(snapshot);
+      store.put({
+        ...snapshot,
+        data: normalizeProject(snapshot.data)
+      });
     }),
 
   listSnapshots: async (projectId: string) =>
     withStore<ProjectSnapshot[]>("snapshots", "readonly", (store) => store.getAll()).then((snapshots) =>
       snapshots
         .filter((snapshot) => snapshot.projectId === projectId)
+        .map((snapshot) => ({
+          ...snapshot,
+          data: normalizeProject(snapshot.data)
+        }))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     ),
 

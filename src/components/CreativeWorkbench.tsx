@@ -27,6 +27,7 @@ import { getAiRecoveryCopy } from "@/lib/ai-recovery-copy";
 import { getNodeEmotionGoal } from "@/lib/emotion-goals";
 import { llmProvider } from "@/lib/llm";
 import { createOutlineFromScheme, createProjectId, ensureSerialArcNodes } from "@/lib/outline-template";
+import { ensureWorldState } from "@/lib/world-state";
 import { getOutlineNodeDisplayTitle, groupOutlineNodes, outlineKindDisplayLabels } from "@/lib/outline-ux";
 import { buildSchemeTheoryDiagnostics } from "@/lib/scheme-theory-diagnostics";
 import { localStore } from "@/lib/storage";
@@ -279,6 +280,11 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
     };
     const sourceNodes = ensureSerialArcNodes(outlineNodeOverride ?? outlineNodes);
     const nodesToExport = sourceNodes.length > 0 ? sourceNodes : createOutlineFromScheme(schemeData);
+    const worldState = ensureWorldState({
+      outlineNodes: nodesToExport,
+      worldState: project?.worldState,
+      updatedAt: project?.updatedAt || now
+    }, now);
 
     return {
       id: id || project?.id || draftProjectIdRef.current,
@@ -286,6 +292,7 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
       seedText: seedText.trim(),
       selectedScheme: schemeData,
       outlineNodes: nodesToExport,
+      worldState,
       theoryChecks: runTheoryChecks({ outlineNodes: nodesToExport }),
       theorySuggestionStates,
       similarSettingHints: selectedScheme.similarSettingHints || [],

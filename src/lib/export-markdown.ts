@@ -3,6 +3,7 @@ import { getArcPhaseFieldEntries, getArcPhaseRoleLabel } from "./arc-phase-field
 import { getNodeEmotionGoal } from "./emotion-goals";
 import { runQualityChecks } from "./quality-checker";
 import { getSerialArcFieldEntries } from "./serial-arc-fields";
+import { getWorldStateCounts, normalizeWorldState } from "./world-state";
 
 const riskLabels: Record<Project["similarSettingHints"][number]["riskLevel"], string> = {
   low: "低风险",
@@ -19,6 +20,30 @@ const normalizeContent = (value: string | undefined) => {
   const content = value?.trim();
   return content || "待补充";
 };
+
+const worldStateEntityKindLabels: Record<string, string> = {
+  character: "人物",
+  faction: "势力",
+  location: "地点",
+  item: "物品",
+  ability: "能力",
+  rule: "规则",
+  other: "其他"
+};
+
+const worldStateRelationTypeLabels: Record<string, string> = {
+  ally: "盟友",
+  enemy: "敌对",
+  belongsTo: "隶属",
+  teacherStudent: "师徒",
+  family: "亲属",
+  rival: "竞争",
+  debt: "债务",
+  other: "其他"
+};
+
+const sourceLabel = (source?: { label?: string; nodeId?: string; chapterRange?: string }) =>
+  [source?.label, source?.chapterRange, source?.nodeId].filter(Boolean).join(" / ");
 
 export const sanitizeMarkdownFilename = (value: string) => {
   const fallback = "未命名项目";
@@ -116,6 +141,72 @@ export const buildProjectMarkdown = (project: Project) => {
         lines.push(normalizeContent(phaseNode.content));
         lines.push("");
       }
+    }
+  }
+
+  if (project.worldState) {
+    const worldState = normalizeWorldState(project.worldState);
+    const counts = getWorldStateCounts(worldState);
+    lines.push("## 世界状态基座");
+    lines.push("");
+    lines.push(`- 当前卷内阶段：${worldState.currentArcPhaseId || "待确定"}`);
+    lines.push(
+      `- 结构统计：${counts.entities} 条事实、${counts.relations} 条关系、${counts.openForeshadowings} 条开放伏笔、${counts.events} 条状态事件`
+    );
+    lines.push("");
+
+    if (worldState.entities.length > 0) {
+      lines.push("### 基础事实");
+      lines.push("");
+      for (const entity of worldState.entities) {
+        lines.push(
+          `- ${worldStateEntityKindLabels[entity.kind] || entity.kind} · ${entity.name} · ${entity.status}`
+        );
+        lines.push(`  - 当前状态：${normalizeContent(entity.currentState)}`);
+        lines.push(`  - 摘要：${normalizeContent(entity.summary)}`);
+        const source = sourceLabel(entity.source);
+        if (source) lines.push(`  - 来源：${source}`);
+      }
+      lines.push("");
+    }
+
+    if (worldState.relations.length > 0) {
+      lines.push("### 关系与势力");
+      lines.push("");
+      for (const relation of worldState.relations) {
+        const relationLabel = relation.relationLabel || worldStateRelationTypeLabels[relation.relationType] || relation.relationType;
+        lines.push(`- ${relation.fromEntityId} -> ${relation.toEntityId} · ${relationLabel} · ${relation.status}`);
+        lines.push(`  - 摘要：${normalizeContent(relation.summary)}`);
+        const source = sourceLabel(relation.source);
+        if (source) lines.push(`  - 来源：${source}`);
+      }
+      lines.push("");
+    }
+
+    if (worldState.foreshadowings.length > 0) {
+      lines.push("### 伏笔与后果");
+      lines.push("");
+      for (const foreshadowing of worldState.foreshadowings) {
+        lines.push(`- ${foreshadowing.title} · ${foreshadowing.status}`);
+        lines.push(`  - 摘要：${normalizeContent(foreshadowing.summary)}`);
+        if (foreshadowing.triggerCondition) lines.push(`  - 触发条件：${foreshadowing.triggerCondition}`);
+        if (foreshadowing.plannedPayoff) lines.push(`  - 计划兑现：${foreshadowing.plannedPayoff}`);
+        const source = sourceLabel(foreshadowing.source);
+        if (source) lines.push(`  - 来源：${source}`);
+      }
+      lines.push("");
+    }
+
+    if (worldState.events.length > 0) {
+      lines.push("### 状态变化记录");
+      lines.push("");
+      for (const event of worldState.events) {
+        lines.push(`- ${event.kind} · ${event.status} · ${event.createdAt}`);
+        lines.push(`  - ${normalizeContent(event.summary)}`);
+        const source = sourceLabel(event.source);
+        if (source) lines.push(`  - 来源：${source}`);
+      }
+      lines.push("");
     }
   }
 

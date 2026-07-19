@@ -6,9 +6,12 @@ AI 驱动的网文写作辅助工具：从一句话灵感出发，生成三个�
 
 - 当前已达到“内部试用版”门槛：灵感引爆、方案选择、长篇卷纲、大纲编辑、理论诊断、AI 补全、保存、快照和 Markdown 导出已经形成闭环。
 - 当前 V2 主线目标是“可公开小范围试用版”：从小点子推进到可开书的前 30 章准备包。
+- `V2-1.5` 与 `V2-1.6` 已完成：7 个连载卷可以继续拆成卷内阶段，阶段节点支持编辑、迁移、保存、快照和 Markdown 导出。
+- `WorldState-1` 已完成基础模型：项目现在可以保存事实、关系、伏笔和状态事件，并把卷内阶段的 `stateChange` 纳入计划事件流。
+- 当前最近推进项是 `V2-2.1：主角字段模型与 UI`，先把作者真正会维护的人物字段接入世界状态，而不是先做巨型知识库。
 - 真实 LLM 通过服务端代理接入，支持 OpenAI 兼容网关；Claude / Ollama 目前只保留适配器类型，尚未完成真实实现。
 - V1 仍是本地优先的单用户工具，数据默认保存在浏览器 IndexedDB。
-- 当前不承诺完整千章管理、云同步、完整 30 理论引擎、完整 IP 相似度检测或完整版本历史。
+- 当前不承诺完整千章管理、云同步、完整 30 理论引擎、完整 IP 相似度检测、完整版本历史或自动维护世界状态。
 
 ## 核心功能
 
@@ -57,8 +60,18 @@ V1 首批接入 8 个基础理论引擎，实时检测大纲质量：
 ### 项目快照
 支持手动保存项目快照，可随时恢复到历史版本，数据存储在本地 IndexedDB。
 
+### 项目级世界状态基座（V2）
+`WorldState-1` 先提供可保存、可迁移、可查询的最小结构，不直接替作者自动补设定：
+
+- **基础事实**：人物、势力、地点、物品、能力、规则等实体及当前状态。
+- **关系与势力**：盟友、敌对、隶属、师徒、亲属、竞争、债务等关系。
+- **伏笔与后果**：开放、已解决或放弃的伏笔，附带触发条件和计划兑现。
+- **状态变化事件**：卷内阶段的 `stateChange` 先进入 `planned` 事件；作者确认后可保留为 `confirmed`，后续同步不会覆盖。
+
+旧项目打开或保存时会自动补齐状态结构，已有作者数据优先保留。当前版本暂不提供独立世界状态面板、不做自由文本自动抽取，也不会在写作时强制阻断作者。
+
 ### Markdown 导出
-一键导出完整大纲为 Markdown 文件，便于在其他编辑器中继续创作。
+一键导出完整大纲和已存在的世界状态记录为 Markdown 文件，便于在其他编辑器中继续创作。
 
 ## 技术栈
 
@@ -117,6 +130,7 @@ LLM_USE_MOCK=true
 | `npm run typecheck` | 类型检查 |
 | `npm run acceptance:v1` | V1 验收冒烟测试 |
 | `npm run acceptance:v2` | V2 卷纲字段冒烟测试 |
+| `npm run acceptance:world-state` | WorldState-1 世界状态模型冒烟测试 |
 | `npm run theory:eval` | 理论引擎评估测试 |
 
 ## 项目结构
@@ -130,7 +144,8 @@ spark-workshop/
 ├── scripts/                  # 测试脚本
 │   ├── run-theory-eval.mjs
 │   ├── run-v1-acceptance-smoke.mjs
-│   └── run-v2-serial-arc-smoke.mjs
+│   ├── run-v2-serial-arc-smoke.mjs
+│   └── run-world-state-smoke.mjs
 ├── src/
 │   ├── app/                  # Next.js 应用路由
 │   │   ├── api/llm/          # LLM API 端点
@@ -155,6 +170,7 @@ spark-workshop/
 │   │   ├── theory-library.ts # 理论库定义
 │   │   ├── theory-checker.ts # 理论检测逻辑
 │   │   ├── emotion-goals.ts  # 情绪目标定义
+│   │   ├── world-state.ts    # 世界状态模型、迁移和查询
 │   │   └── export-markdown.ts # Markdown 导出
 │   └── types/                # 类型定义
 │       └── product.ts
@@ -182,6 +198,13 @@ spark-workshop/
 - **projects**: 项目列表与大纲数据
 - **snapshots**: 项目版本快照
 
+项目数据中的 `worldState` 当前包含：
+
+- `entities`：基础事实实体
+- `relations`：实体关系
+- `foreshadowings`：伏笔与后果
+- `events`：状态变化事件
+
 ## 浏览器兼容性
 
 - Chrome/Edge 90+
@@ -206,9 +229,12 @@ spark-workshop/
 - 产品阶段目标：`../outputs/产品阶段目标与发布门槛.md`
 - V1 自动回归：`npm run acceptance:v1`
 - V2 卷纲字段回归：`npm run acceptance:v2`
+- WorldState-1 回归：`npm run acceptance:world-state`
 - V1 理论样例：`npm run theory:eval`
 - V1 收口记录：`../outputs/V1-Acceptance-3-内部试用回归记录.md`
 - V2 规划：`../outputs/V2-产品规划.md`
+- 世界状态可行性报告：`../outputs/V2-世界状态机与长篇防降智幻觉可行性报告.md`
+- WorldState-1 实现记录：`../outputs/WorldState-1-项目级结构化世界状态最小模型.md`
 
 ## 许可证
 
