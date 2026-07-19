@@ -196,6 +196,7 @@ export type Project = {
   seedText: string;
   selectedScheme: WorldScheme;
   outlineNodes: OutlineNode[];
+  worldState?: ProjectWorldState;
   theoryChecks: TheoryCheckResult[];
   theorySuggestionStates?: Record<string, TheorySuggestionState>;
   similarSettingHints: SimilarSettingHint[];
@@ -237,6 +238,107 @@ export type OutlineNodeEnhancementOutput = {
   content: string;
   suggestions: string[];
   llmMeta?: LlmResultMeta;
+};
+
+export type WorldStateVersion = 1;
+
+export type WorldStateEntityKind =
+  | "character"
+  | "faction"
+  | "location"
+  | "item"
+  | "ability"
+  | "rule"
+  | "other";
+
+export type WorldStateEntityStatus = "active" | "inactive" | "unknown";
+
+export type WorldStateRelationType =
+  | "ally"
+  | "enemy"
+  | "belongsTo"
+  | "teacherStudent"
+  | "family"
+  | "rival"
+  | "debt"
+  | "other";
+
+export type WorldStateRelationStatus = "active" | "ended" | "unknown";
+
+export type WorldStateForeshadowingStatus = "open" | "resolved" | "abandoned";
+
+export type WorldStateEventKind =
+  | "stateChange"
+  | "relationChange"
+  | "foreshadowingPlanted"
+  | "foreshadowingResolved";
+
+export type WorldStateEventStatus = "planned" | "confirmed" | "retracted";
+
+export type WorldStateSource = {
+  nodeId?: string;
+  chapterRange?: string;
+  label?: string;
+};
+
+export type WorldStateEntity = {
+  id: string;
+  kind: WorldStateEntityKind;
+  name: string;
+  summary: string;
+  currentState: string;
+  status: WorldStateEntityStatus;
+  aliases?: string[];
+  source?: WorldStateSource;
+  updatedAt: IsoDateString;
+};
+
+export type WorldStateRelation = {
+  id: string;
+  fromEntityId: string;
+  toEntityId: string;
+  relationType: WorldStateRelationType;
+  relationLabel?: string;
+  status: WorldStateRelationStatus;
+  summary: string;
+  source?: WorldStateSource;
+  updatedAt: IsoDateString;
+};
+
+export type WorldStateForeshadowing = {
+  id: string;
+  title: string;
+  summary: string;
+  status: WorldStateForeshadowingStatus;
+  triggerCondition?: string;
+  plannedPayoff?: string;
+  relatedEntityIds?: string[];
+  source?: WorldStateSource;
+  targetNodeId?: string;
+  updatedAt: IsoDateString;
+};
+
+export type WorldStateEvent = {
+  id: string;
+  kind: WorldStateEventKind;
+  status: WorldStateEventStatus;
+  summary: string;
+  entityId?: string;
+  relatedEntityIds?: string[];
+  fromState?: string;
+  toState?: string;
+  source?: WorldStateSource;
+  createdAt: IsoDateString;
+};
+
+export type ProjectWorldState = {
+  version: WorldStateVersion;
+  currentArcPhaseId?: string;
+  entities: WorldStateEntity[];
+  relations: WorldStateRelation[];
+  foreshadowings: WorldStateForeshadowing[];
+  events: WorldStateEvent[];
+  updatedAt: IsoDateString;
 };
 
 export type EmotionBeat = {
