@@ -45,6 +45,11 @@ export const defaultEmotionGoalByKind: Record<OutlineNodeKind, ReaderEmotionGoal
     promise: "让这一阶段结束时读者想继续追下一段。",
     intensity: 4
   },
+  arcPhase: {
+    emotion: "期待",
+    promise: "让这一小段结束时，读者知道下一段必须继续看。",
+    intensity: 4
+  },
   foreshadowing: {
     emotion: "好奇",
     promise: "让读者记住疑点，并期待后文回收。",

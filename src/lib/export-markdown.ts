@@ -1,6 +1,8 @@
 import type { Project } from "@/types/product";
+import { getArcPhaseFieldEntries, getArcPhaseRoleLabel } from "./arc-phase-fields";
 import { getNodeEmotionGoal } from "./emotion-goals";
 import { runQualityChecks } from "./quality-checker";
+import { getSerialArcFieldEntries } from "./serial-arc-fields";
 
 const riskLabels: Record<Project["similarSettingHints"][number]["riskLevel"], string> = {
   low: "低风险",
@@ -31,6 +33,15 @@ export const sanitizeMarkdownFilename = (value: string) => {
 
 export const buildProjectMarkdown = (project: Project) => {
   const nodes = [...project.outlineNodes].sort((a, b) => a.order - b.order);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const childNodesByParentId = new Map<string, typeof nodes>();
+  for (const node of nodes) {
+    if (!node.parentId) continue;
+    const childNodes = childNodesByParentId.get(node.parentId) ?? [];
+    childNodes.push(node);
+    childNodesByParentId.set(node.parentId, childNodes);
+  }
+  const topLevelNodes = nodes.filter((node) => !node.parentId || !nodeIds.has(node.parentId));
   const lines: string[] = [
     `# ${project.title || "未命名项目"}`,
     "",
@@ -52,12 +63,20 @@ export const buildProjectMarkdown = (project: Project) => {
     ""
   ];
 
-  for (const node of nodes) {
+  for (const node of topLevelNodes) {
     const emotionGoal = getNodeEmotionGoal(node);
     lines.push(`### ${node.title}`);
     if (node.metadata?.chapterRange) {
       lines.push("");
       lines.push(`章节范围：${node.metadata.chapterRange}`);
+    }
+    const serialArcEntries = node.kind === "act" ? getSerialArcFieldEntries(node.metadata) : [];
+    if (serialArcEntries.length > 0) {
+      lines.push("");
+      lines.push("卷纲字段：");
+      for (const entry of serialArcEntries) {
+        lines.push(`- ${entry.label}：${entry.value}`);
+      }
     }
     lines.push("");
     lines.push(`读者情绪目标：${emotionGoal.emotion} / 强度 ${emotionGoal.intensity}`);
@@ -65,6 +84,39 @@ export const buildProjectMarkdown = (project: Project) => {
     lines.push("");
     lines.push(normalizeContent(node.content));
     lines.push("");
+
+    if (node.kind === "act") {
+      const phaseNodes = childNodesByParentId.get(node.id) ?? [];
+      for (const phaseNode of phaseNodes.sort((a, b) => a.order - b.order)) {
+        const phaseEmotionGoal = getNodeEmotionGoal(phaseNode);
+        const phaseRoleLabel = getArcPhaseRoleLabel(phaseNode.metadata?.phaseRole);
+        const phaseEntries = getArcPhaseFieldEntries(phaseNode.metadata);
+
+        lines.push(`#### ${phaseNode.title}`);
+        if (phaseRoleLabel || phaseNode.metadata?.chapterRange) {
+          lines.push("");
+          if (phaseRoleLabel) {
+            lines.push(`阶段功能：${phaseRoleLabel}`);
+          }
+          if (phaseNode.metadata?.chapterRange) {
+            lines.push(`章节范围：${phaseNode.metadata.chapterRange}`);
+          }
+        }
+        if (phaseEntries.length > 0) {
+          lines.push("");
+          lines.push("阶段字段：");
+          for (const entry of phaseEntries) {
+            lines.push(`- ${entry.label}：${entry.value}`);
+          }
+        }
+        lines.push("");
+        lines.push(`读者情绪目标：${phaseEmotionGoal.emotion} / 强度 ${phaseEmotionGoal.intensity}`);
+        lines.push(`读者承诺：${phaseEmotionGoal.promise}`);
+        lines.push("");
+        lines.push(normalizeContent(phaseNode.content));
+        lines.push("");
+      }
+    }
   }
 
   if (project.similarSettingHints.length > 0) {

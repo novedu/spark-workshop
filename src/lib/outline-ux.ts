@@ -16,6 +16,7 @@ export const outlineKindDisplayLabels: Record<OutlineNodeKind, string> = {
   goldenFinger: "金手指",
   conflict: "冲突",
   act: "篇章",
+  arcPhase: "卷内阶段",
   foreshadowing: "伏笔"
 };
 
@@ -56,6 +57,16 @@ export const getOutlineNodeDisplayTitle = (node: OutlineNode) => {
 };
 
 export const getOutlineNodeStageHint = (node: OutlineNode) => {
+  if (node.kind === "arcPhase") {
+    const role = node.metadata?.phaseRole;
+    if (role === "setup") return "这一阶段负责立规矩、抛问题，不急着兑现大爽点。";
+    if (role === "pressure") return "这一阶段负责持续加压，让主角必须付出代价。";
+    if (role === "turning") return "这一阶段负责让旧办法失效或让金手指暴露边界。";
+    if (role === "payoff") return "这一阶段负责集中兑现前面积累的压迫和期待。";
+    if (role === "hook") return "这一阶段负责把胜利后的新问题抛给下一段。";
+    return "这是卷内阶段节点，重点写清读者问题、压力源、兑现点和阶段钩子。";
+  }
+
   const hintById: Record<string, string> = {
     antagonist: "可以先写阶段性压力，不必一开始确定终极反派。",
     foreshadowing: "先记录疑点和预计回收位置，后续随章节补充。",
@@ -73,11 +84,25 @@ export const getOutlineNodeStageHint = (node: OutlineNode) => {
 
 export const groupOutlineNodes = (nodes: OutlineNode[]) => {
   const sortedNodes = [...nodes].sort((a, b) => a.order - b.order);
-  const groupedNodeIds = new Set(outlineUxGroups.flatMap((group) => group.nodeIds));
-  const knownGroups = outlineUxGroups.map((group) => ({
-    ...group,
-    nodes: group.nodeIds.map((id) => sortedNodes.find((node) => node.id === id)).filter(Boolean) as OutlineNode[]
-  }));
+  const serializationNodes = sortedNodes.filter((node) => node.kind === "act" || node.kind === "arcPhase");
+  const groupedNodeIds = new Set([
+    ...outlineUxGroups.flatMap((group) => group.nodeIds),
+    ...serializationNodes.map((node) => node.id)
+  ]);
+  const knownGroups = outlineUxGroups.map((group) => {
+    if (group.id === "serialization") {
+      return {
+        ...group,
+        nodeIds: serializationNodes.map((node) => node.id),
+        nodes: serializationNodes
+      };
+    }
+
+    return {
+      ...group,
+      nodes: group.nodeIds.map((id) => sortedNodes.find((node) => node.id === id)).filter(Boolean) as OutlineNode[]
+    };
+  });
   const customNodes = sortedNodes.filter((node) => !groupedNodeIds.has(node.id));
 
   if (customNodes.length === 0) return knownGroups;

@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, FileText, WandSparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Trash2, FileText, WandSparkles } from "lucide-react";
 import { defaultEmotionGoalByKind, emotionGoalOptions, getNodeEmotionGoal } from "@/lib/emotion-goals";
+import { createArcPhaseNode } from "@/lib/outline-template";
 import {
   getOutlineNodeStageHint,
   outlineKindDisplayLabels
 } from "@/lib/outline-ux";
+import {
+  serialArcFieldDefinitions,
+  type SerialArcFieldDefinition
+} from "@/lib/serial-arc-fields";
 import type { EmotionType, OutlineNode, OutlineNodeKind, ReaderEmotionGoal } from "@/types/product";
 
 interface OutlineEditorProps {
@@ -31,11 +36,22 @@ export function OutlineEditor({
   enhanceStatus
 }: OutlineEditorProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [expandedSerialNodeIds, setExpandedSerialNodeIds] = useState<Record<string, boolean>>({});
 
   const sortedNodes = [...nodes].sort((a, b) => a.order - b.order);
   const selectedNode = sortedNodes.find((n) => n.id === selectedNodeId);
   const selectedEmotionGoal = selectedNode ? getNodeEmotionGoal(selectedNode) : null;
   const selectedStageHint = selectedNode ? getOutlineNodeStageHint(selectedNode) : "";
+  const serialArcFieldValues =
+    selectedNode?.kind === "act"
+      ? serialArcFieldDefinitions.map((field) => ({
+          ...field,
+          value: selectedNode.metadata?.[field.key]?.trim() ?? ""
+        }))
+      : [];
+  const filledSerialArcFieldCount = serialArcFieldValues.filter((field) => field.value.length > 0).length;
+  const serialArcPreviewFields = serialArcFieldValues.slice(0, 3);
+  const serialFieldsExpanded = selectedNodeId ? Boolean(expandedSerialNodeIds[selectedNodeId]) : false;
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (selectedNodeId) {
@@ -59,7 +75,37 @@ export function OutlineEditor({
     });
   };
 
+  const handleSerialArcFieldChange = (key: SerialArcFieldDefinition["key"], value: string) => {
+    if (!selectedNodeId || !selectedNode) return;
+    onUpdateNode(selectedNodeId, {
+      metadata: {
+        ...(selectedNode.metadata ?? {}),
+        [key]: value
+      }
+    });
+  };
+
+  const toggleSerialFields = () => {
+    if (!selectedNodeId) return;
+    setExpandedSerialNodeIds((prev) => ({
+      ...prev,
+      [selectedNodeId]: !prev[selectedNodeId]
+    }));
+  };
+
   const handleAddNode = (kind: OutlineNodeKind) => {
+    if (kind === "arcPhase") {
+      const parentNode = selectedNode?.kind === "arcPhase"
+        ? nodes.find((node) => node.id === selectedNode.parentId)
+        : selectedNode;
+      if (parentNode?.kind === "act") {
+        const siblingPhaseCount = nodes.filter((node) => node.kind === "arcPhase" && node.parentId === parentNode.id).length;
+        onAddNode(createArcPhaseNode(parentNode.id, nodes.length, siblingPhaseCount + 1));
+        setShowAddMenu(false);
+        return;
+      }
+    }
+
     const newNode: OutlineNode = {
       id: `node-${Date.now()}`,
       kind,
@@ -168,13 +214,55 @@ export function OutlineEditor({
                 />
               </label>
             </div>
+            {selectedNode.kind === "act" && (
+              <section className="node-serial-arc" aria-label="卷纲字段">
+                <button
+                  type="button"
+                  className="node-serial-summary"
+                  onClick={toggleSerialFields}
+                  aria-expanded={serialFieldsExpanded}
+                >
+                  {serialFieldsExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  <span className="node-serial-summary-title">卷纲字段</span>
+                  <span className="node-serial-summary-count">{filledSerialArcFieldCount}/6 已填</span>
+                  {selectedNode.metadata?.chapterRange && (
+                    <span className="node-serial-summary-range">{selectedNode.metadata.chapterRange}</span>
+                  )}
+                </button>
+                {!serialFieldsExpanded && (
+                  <div className="node-serial-preview">
+                    {serialArcPreviewFields.map((field) => (
+                      <span key={field.key}>
+                        <b>{field.label}</b>
+                        {field.value || "待补"}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {serialFieldsExpanded && (
+                  <div className="node-serial-fields">
+                    {serialArcFieldDefinitions.map((field) => (
+                      <label key={field.key} className="node-serial-field">
+                        <span>{field.label}</span>
+                        <textarea
+                          value={selectedNode.metadata?.[field.key] ?? ""}
+                          onChange={(event) => handleSerialArcFieldChange(field.key, event.target.value)}
+                          placeholder={field.description}
+                          title={field.description}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
             <textarea
               value={selectedNode.content}
               onChange={handleContentChange}
               className="node-content-textarea"
               placeholder="输入节点内容..."
             />
-            {selectedNode.metadata?.chapterRange && (
+            {selectedNode.kind !== "act" && selectedNode.metadata?.chapterRange && (
               <div className="node-metadata">
                 <span>章节范围：{selectedNode.metadata.chapterRange}</span>
               </div>

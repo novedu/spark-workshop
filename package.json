@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "acceptance:v1": "node scripts/run-v1-acceptance-smoke.mjs",
+    "acceptance:v2": "node scripts/run-v2-serial-arc-smoke.mjs",
     "start": "next start",
     "theory:eval": "node scripts/run-theory-eval.mjs",
     "typecheck": "tsc --noEmit"

@@ -25,7 +25,8 @@ const joinNodeText = (nodes: OutlineNode[]) =>
     .join("\n");
 
 const getNode = (nodes: OutlineNode[], id: string) => nodes.find((node) => node.id === id);
-const getSerialNodes = (nodes: OutlineNode[]) => nodes.filter((node) => node.kind === "act");
+const getSerialNodes = (nodes: OutlineNode[]) =>
+  nodes.filter((node) => node.kind === "act" || node.kind === "arcPhase");
 
 const getCheckSeverity = (hasHardGap: boolean, hasSoftGap: boolean): QualityCheckSeverity => {
   if (hasHardGap) return "fail";

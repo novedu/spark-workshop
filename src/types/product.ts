@@ -147,7 +147,37 @@ export type OutlineNodeKind =
   | "goldenFinger"
   | "conflict"
   | "act"
+  | "arcPhase"
   | "foreshadowing";
+
+export type SerialArcMetadataKey =
+  | "chapterRange"
+  | "volumeGoal"
+  | "mapLayer"
+  | "pressureSource"
+  | "upgradeResource"
+  | "miniClimax"
+  | "nextVolumeHook";
+
+export type SerialArcMetadata = Partial<Record<SerialArcMetadataKey, string>>;
+
+export type ArcPhaseRole = "setup" | "pressure" | "turning" | "payoff" | "hook";
+
+export type ArcPhaseMetadataKey =
+  | "phaseRole"
+  | "readerQuestion"
+  | "pressureSource"
+  | "payoffBeat"
+  | "chapterHook"
+  | "stateChange";
+
+export type ArcPhaseMetadata = Partial<Record<ArcPhaseMetadataKey, string>> & {
+  chapterRange?: string;
+};
+
+export type OutlineNodeMetadata = SerialArcMetadata &
+  ArcPhaseMetadata &
+  Record<string, string | number | boolean | string[] | undefined>;
 
 export type OutlineNode = {
   id: string;
@@ -157,7 +187,7 @@ export type OutlineNode = {
   content: string;
   emotionGoal?: ReaderEmotionGoal;
   order: number;
-  metadata?: Record<string, string | number | boolean | string[]>;
+  metadata?: OutlineNodeMetadata;
 };
 
 export type Project = {

@@ -48,6 +48,7 @@ const fallbackTheoryMap: Record<OutlineNode["kind"], V1TheoryId[]> = {
   goldenFinger: ["T11", "T12"],
   conflict: ["T03"],
   act: ["T01", "T07"],
+  arcPhase: ["T01", "T07"],
   foreshadowing: ["T04"]
 };
 
@@ -205,16 +206,16 @@ const getContentGapMessage = (node: OutlineNode | undefined, theoryId: V1TheoryI
     }
   }
 
-  if (theoryId === "T07" && node.kind === "act" && countKeywordGroups(content, [["憋屈", "压制", "吃亏"], ["爆发", "打脸", "反击"], ["收获", "奖励", "升级"], ["新危机", "反转", "追杀"]]) < 2) {
-    return "当前篇章还没看到清晰的爽点循环。";
+  if ((theoryId === "T07" && (node.kind === "act" || node.kind === "arcPhase")) && countKeywordGroups(content, [["憋屈", "压制", "吃亏"], ["爆发", "打脸", "反击"], ["收获", "奖励", "升级"], ["新危机", "反转", "追杀"]]) < 2) {
+    return node.kind === "arcPhase" ? "当前阶段还没看到清晰的爽点循环。" : "当前篇章还没看到清晰的爽点循环。";
   }
 
   if (theoryId === "T02" && node.kind === "protagonist" && !hasAnyKeyword(content, protagonistEmpathyKeywords)) {
     return "主角设定已有内容，但还没看到足够明确的共情入口。";
   }
 
-  if (theoryId === "T01" && node.kind === "act" && !hasAnyKeyword(content, actStructureKeywords)) {
-    return "篇章已有内容，但还没看到明确的结构节点。";
+  if (theoryId === "T01" && (node.kind === "act" || node.kind === "arcPhase") && !hasAnyKeyword(content, actStructureKeywords)) {
+    return node.kind === "arcPhase" ? "阶段已有内容，但还没看到明确的推进功能。" : "篇章已有内容，但还没看到明确的结构节点。";
   }
 
   if (content.length < 48 && !hasListLikeDetail(content)) {
@@ -226,7 +227,12 @@ const getContentGapMessage = (node: OutlineNode | undefined, theoryId: V1TheoryI
 
 const checkT01 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const act1 = project.outlineNodes.find((n) => n.id === "act-1");
-  if (!act1 || !act1.content?.trim()) {
+  const act1PhaseText = project.outlineNodes
+    .filter((node) => node.parentId === "act-1")
+    .map((node) => `${node.title}\n${node.content}\n${node.metadata?.readerQuestion ?? ""}\n${node.metadata?.chapterHook ?? ""}`)
+    .join("\n");
+  const act1Text = `${act1?.content ?? ""}\n${act1PhaseText}`;
+  if (!act1 || !act1Text.trim()) {
     return {
       theoryId: "T01",
       severity: "warning",
@@ -235,7 +241,7 @@ const checkT01 = (project: TheoryCheckContext): TheoryCheckResult | null => {
       rescueOptions: ["添加主角出场场景", "设计救猫咪时刻", "明确开局关门事件"]
     };
   }
-  const missing = getMissingLabels(act1.content, [
+  const missing = getMissingLabels(act1Text, [
     { label: "黄金开局", keywords: ["开局", "起点", "出场", "第一章", "钩子"] },
     { label: "开局关门", keywords: ["关门", "转折", "不得不", "被迫", "离开", "选择"] }
   ]);
@@ -330,8 +336,10 @@ const checkT04 = (project: TheoryCheckContext): TheoryCheckResult | null => {
 };
 
 const checkT07 = (project: TheoryCheckContext): TheoryCheckResult | null => {
-  const serialNodes = project.outlineNodes.filter((node) => node.kind === "act");
-  const serialText = serialNodes.map((node) => node.content).join("\n");
+  const serialNodes = project.outlineNodes.filter((node) => node.kind === "act" || node.kind === "arcPhase");
+  const serialText = serialNodes
+    .map((node) => `${node.content}\n${node.metadata?.payoffBeat ?? ""}\n${node.metadata?.chapterHook ?? ""}`)
+    .join("\n");
 
   if (serialNodes.length === 0 || !serialText.trim()) {
     return {

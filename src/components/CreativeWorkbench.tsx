@@ -557,7 +557,15 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
                   </div>
                   <ol className="outline-list">
                     {group.nodes.map((node) => (
-                      <li className={selectedNodeId === node.id ? "active" : ""} key={node.id}>
+                      <li
+                        className={[
+                          selectedNodeId === node.id ? "active" : "",
+                          node.kind === "arcPhase" ? "child-phase" : ""
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        key={node.id}
+                      >
                         <button
                           type="button"
                           aria-current={selectedNodeId === node.id ? "true" : undefined}

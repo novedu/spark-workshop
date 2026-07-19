@@ -4,10 +4,11 @@ AI 驱动的网文写作辅助工具：从一句话灵感出发，生成三个�
 
 ## 当前状态
 
-- V1 已具备内部试用基础：灵感引爆、方案选择、长篇卷纲、大纲编辑、理论诊断、AI 补全、保存、快照和 Markdown 导出已经形成闭环。
+- 当前已达到“内部试用版”门槛：灵感引爆、方案选择、长篇卷纲、大纲编辑、理论诊断、AI 补全、保存、快照和 Markdown 导出已经形成闭环。
+- 当前 V2 主线目标是“可公开小范围试用版”：从小点子推进到可开书的前 30 章准备包。
 - 真实 LLM 通过服务端代理接入，支持 OpenAI 兼容网关；Claude / Ollama 目前只保留适配器类型，尚未完成真实实现。
 - V1 仍是本地优先的单用户工具，数据默认保存在浏览器 IndexedDB。
-- V1 不承诺完整章节管理、云同步、完整 30 理论引擎、完整 IP 相似度检测或完整版本历史。
+- 当前不承诺完整千章管理、云同步、完整 30 理论引擎、完整 IP 相似度检测或完整版本历史。
 
 ## 核心功能
 
@@ -115,6 +116,7 @@ LLM_USE_MOCK=true
 | `npm run start` | 启动生产服务器 |
 | `npm run typecheck` | 类型检查 |
 | `npm run acceptance:v1` | V1 验收冒烟测试 |
+| `npm run acceptance:v2` | V2 卷纲字段冒烟测试 |
 | `npm run theory:eval` | 理论引擎评估测试 |
 
 ## 项目结构
@@ -127,7 +129,8 @@ spark-workshop/
 │   └── sw.js                 # Service Worker
 ├── scripts/                  # 测试脚本
 │   ├── run-theory-eval.mjs
-│   └── run-v1-acceptance-smoke.mjs
+│   ├── run-v1-acceptance-smoke.mjs
+│   └── run-v2-serial-arc-smoke.mjs
 ├── src/
 │   ├── app/                  # Next.js 应用路由
 │   │   ├── api/llm/          # LLM API 端点
@@ -200,7 +203,9 @@ spark-workshop/
 
 ## V1 验收与 V2 规划
 
+- 产品阶段目标：`../outputs/产品阶段目标与发布门槛.md`
 - V1 自动回归：`npm run acceptance:v1`
+- V2 卷纲字段回归：`npm run acceptance:v2`
 - V1 理论样例：`npm run theory:eval`
 - V1 收口记录：`../outputs/V1-Acceptance-3-内部试用回归记录.md`
 - V2 规划：`../outputs/V2-产品规划.md`

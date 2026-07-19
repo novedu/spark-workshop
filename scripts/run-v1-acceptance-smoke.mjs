@@ -33,6 +33,7 @@ Module._extensions[".ts"] = function compileTypeScript(module, filename) {
 const { buildProjectMarkdown, sanitizeMarkdownFilename } = require("../src/lib/export-markdown.ts");
 const { createOutlineFromScheme, ensureSerialArcNodes } = require("../src/lib/outline-template.ts");
 const { runQualityChecks } = require("../src/lib/quality-checker.ts");
+const { serialArcFieldDefinitions } = require("../src/lib/serial-arc-fields.ts");
 const { evaluateTheorySamples } = require("../src/lib/theory-eval-samples.ts");
 const { runTheoryChecks } = require("../src/lib/theory-checker.ts");
 
@@ -59,11 +60,25 @@ const sampleScheme = {
 
 const outlineNodes = createOutlineFromScheme(sampleScheme);
 const outlineIds = outlineNodes.map((node) => node.id);
+const arcPhaseNodes = outlineNodes.filter((node) => node.kind === "arcPhase");
 
 const oldThreeActOutline = outlineNodes.filter((node) =>
   ["world", "protagonist", "antagonist", "golden-finger", "core-conflict", "act-1", "act-2", "act-3", "foreshadowing"].includes(node.id)
 );
 const migratedOutline = ensureSerialArcNodes(oldThreeActOutline);
+const migratedExistingOutline = ensureSerialArcNodes(
+  outlineNodes.map((node) =>
+    node.id === "act-1"
+      ? {
+          ...node,
+          metadata: {
+            chapterRange: "1-30",
+            volumeGoal: "保留作者手写卷目标"
+          }
+        }
+      : node
+  )
+);
 
 const project = {
   id: "acceptance-project",
@@ -81,11 +96,13 @@ const markdown = buildProjectMarkdown(project);
 const qualityChecks = runQualityChecks({ outlineNodes });
 const theoryEvalResults = evaluateTheorySamples();
 const failedTheorySamples = theoryEvalResults.filter((result) => !result.passed);
+const arcNodes = outlineNodes.filter((node) => node.kind === "act");
+const serialArcFieldKeys = serialArcFieldDefinitions.map((definition) => definition.key);
 
 const checks = [
   {
     id: "outline-node-count",
-    passed: outlineNodes.length === 13,
+    passed: outlineNodes.length === 36,
     detail: `outlineNodes=${outlineNodes.length}`
   },
   {
@@ -94,16 +111,42 @@ const checks = [
     detail: outlineIds.filter((id) => id.startsWith("act-")).join(",")
   },
   {
+    id: "arc-phase-chain",
+    passed: arcPhaseNodes.length >= 19 && arcPhaseNodes.every((node) => typeof node.parentId === "string" && node.parentId.startsWith("act-")),
+    detail: arcPhaseNodes.map((node) => `${node.id}:${node.parentId}`).join(",")
+  },
+  {
     id: "old-project-migration",
     passed: ["act-4", "act-5", "act-6", "act-7"].every((id) => migratedOutline.some((node) => node.id === id)),
     detail: migratedOutline.map((node) => node.id).join(",")
+  },
+  {
+    id: "old-phase-migration",
+    passed: migratedOutline.filter((node) => node.kind === "arcPhase").length >= 19,
+    detail: migratedOutline.filter((node) => node.kind === "arcPhase").map((node) => `${node.id}:${node.parentId}`).join(",")
+  },
+  {
+    id: "serial-arc-metadata-defaults",
+    passed: arcNodes.every((node) => serialArcFieldKeys.every((key) => typeof node.metadata?.[key] === "string" && node.metadata[key].length > 0)),
+    detail: `arcNodes=${arcNodes.length}, fields=${serialArcFieldKeys.join(",")}`
+  },
+  {
+    id: "serial-arc-migration-preserves-author-fields",
+    passed:
+      migratedExistingOutline.find((node) => node.id === "act-1")?.metadata?.volumeGoal === "保留作者手写卷目标" &&
+      typeof migratedExistingOutline.find((node) => node.id === "act-1")?.metadata?.mapLayer === "string",
+    detail: JSON.stringify(migratedExistingOutline.find((node) => node.id === "act-1")?.metadata)
   },
   {
     id: "markdown-export-content",
     passed:
       markdown.includes("## 大纲节点") &&
       markdown.includes("章节范围：851-1000+") &&
+      markdown.includes("#### 阶段 1：立局钩子") &&
+      markdown.includes("阶段字段：") &&
       markdown.includes("## 网文质检清单") &&
+      markdown.includes("卷纲字段：") &&
+      markdown.includes("卷末钩子") &&
       markdown.includes("故事引擎"),
     detail: `markdownLength=${markdown.length}`
   },
@@ -131,3 +174,5 @@ if (failedChecks.length > 0) {
   console.error(JSON.stringify(failedChecks, null, 2));
   process.exit(1);
 }
+
+assert(checks.every((check) => check.passed), "V1 acceptance smoke should pass all checks.");

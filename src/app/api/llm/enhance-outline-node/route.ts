@@ -12,6 +12,7 @@ const outlineNodeKinds: OutlineNodeKind[] = [
   "goldenFinger",
   "conflict",
   "act",
+  "arcPhase",
   "foreshadowing"
 ];
 

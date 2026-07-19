@@ -211,6 +211,7 @@ const normalizeOutlineNodeEnhancement = (
     goldenFinger: "补充金手指来源、代价、限制和升级边界。",
     conflict: "补充主角目标、现实阻碍、失败代价和冲突升级方式。",
     act: "补充本卷目标、阶段压力源、升级资源、小高潮、卷尾反转或下一卷钩子。",
+    arcPhase: "补充本阶段的读者问题、压力源、爽点兑现、阶段钩子和状态变化。",
     foreshadowing: "补充伏笔的埋设、回收节点和引爆方式。"
   };
 
