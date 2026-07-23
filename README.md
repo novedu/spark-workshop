@@ -8,7 +8,21 @@ AI 驱动的网文写作辅助工具：从一句话灵感出发，生成三个�
 - 当前 V2 主线目标是“可公开小范围试用版”：从小点子推进到可开书的前 30 章准备包。
 - `V2-1.5` 与 `V2-1.6` 已完成：7 个连载卷可以继续拆成卷内阶段，阶段节点支持编辑、迁移、保存、快照和 Markdown 导出。
 - `WorldState-1` 已完成基础模型：项目现在可以保存事实、关系、伏笔和状态事件，并把卷内阶段的 `stateChange` 纳入计划事件流。
-- 当前最近推进项是 `V2-2.1：主角字段模型与 UI`，先把作者真正会维护的人物字段接入世界状态，而不是先做巨型知识库。
+- `V2-2.1` 已完成：主角节点支持姓名/身份、底层欲望、开场困境、成长弧线和关键关系字段，并同步到世界状态。
+- `V2-2.2` 已完成：反派/压力源节点支持开局压力源、阶段 boss、制度/势力压力、终局对手和压力升级方式，并同步到世界状态。
+- `V2-2.3` 已完成：金手指节点支持能力核心、限制条件、使用代价、升级方式和失控风险，并同步到世界状态。
+- `V2-4.1` 已完成：项目支持前 30 章节奏表字段模型，章节包含读者问题、场景任务、爽点/压迫、章末钩子、依赖事实和状态变化。
+- `V2-4.2` 已完成：工作台支持编辑前 30 章节奏表，并可手动触发 AI 生成初版章节计划。
+- `V2-3.1` 已完成：理论诊断能引用主角、压力源、金手指和前 30 章字段证据，理论解释也会接收本地证据。
+- `V2-3.2` 已完成：理论样例扩展到 10 组，右侧默认只展示最值得处理的前 5 条诊断。
+- `V2-3.3` 已完成：理论诊断通过 10 组样例做默认排序试用，纯关键词命中不再进入默认重点诊断。
+- `V2-5.1` 已完成规划：前三章正文将按“计划取材、手写或单章 AI 生成、编辑检查、作者确认状态、保存导出”形成最小闭环。
+- `V2-5.2` 已完成：前三章正文草稿模型、默认迁移、保存、快照和 Markdown 导出链路已打通。
+- `V2-5.3` 已完成：工作台可切换编辑前三章、对照当前章计划、自动保存，并运行不消耗 token 的本地检查。
+- `V2-5.4` 已完成：前三章支持按当前章手动调用真实 AI 生成正文，组装相关事实、字段和前章承接；失败保留原稿，不用 mock 冒充正文。
+- `V2-5.5` 已完成：作者可确认当前章，把本章状态变化写入世界状态；再次编辑会自动撤回确认，后续章节生成只读取已确认事件。
+- `V2-5.6` 已完成：本地检查中的篇幅、钩子、压力和状态变化缺口可单独请求真实 AI 补写，候选经人工采纳后才写入正文。
+- 当前最近推进项是 `V2-Trial-1`：前三章连续试写与局部补写人工回归；结构回归已通过，真实作者回归待填写。
 - 真实 LLM 通过服务端代理接入，支持 OpenAI 兼容网关；Claude / Ollama 目前只保留适配器类型，尚未完成真实实现。
 - V1 仍是本地优先的单用户工具，数据默认保存在浏览器 IndexedDB。
 - 当前不承诺完整千章管理、云同步、完整 30 理论引擎、完整 IP 相似度检测、完整版本历史或自动维护世界状态。
@@ -69,6 +83,27 @@ V1 首批接入 8 个基础理论引擎，实时检测大纲质量：
 - **状态变化事件**：卷内阶段的 `stateChange` 先进入 `planned` 事件；作者确认后可保留为 `confirmed`，后续同步不会覆盖。
 
 旧项目打开或保存时会自动补齐状态结构，已有作者数据优先保留。当前版本暂不提供独立世界状态面板、不做自由文本自动抽取，也不会在写作时强制阻断作者。
+
+### 主角字段模型（V2）
+主角节点新增 5 个结构化字段：姓名 / 身份、底层欲望、开场困境、成长弧线、关键关系。字段会随项目保存、快照和 Markdown 导出保留，并同步成 `worldState.entities` 里的 `protagonist-main`。
+
+### 压力源链字段模型（V2）
+反派 / 压力源节点新增 5 组结构化字段：开局压力源、阶段 boss、制度 / 势力压力、终局对手和压力升级方式。其中前 4 组都可绑定出场卷或阶段，避免开局就把终极反派写死。字段会随保存、快照和 Markdown 导出保留，并同步成 `worldState.entities` 里的压力源事实。
+
+### 金手指字段模型（V2）
+金手指 / 力量体系节点新增 5 个结构化字段：能力核心、限制条件、使用代价、升级方式、失控风险。字段会随保存、快照和 Markdown 导出保留，并同步成 `worldState.entities` 里的能力与规则事实，避免后续章节生成时变成无成本万能外挂。
+
+### 前 30 章节奏表（V2）
+项目新增 `openingChapterPlan`，包含 30 条章节记录。每章保留读者问题、场景任务、爽点/压迫、章末钩子、依赖事实和状态变化。工作台中可编辑这些章节字段，也可以手动触发 AI 生成初版前 30 章计划；失败时会使用本地模板兜底，不写整章正文。
+
+### 前三章正文试写规划（V2）
+`V2-5.1` 已明确正文最小闭环：只覆盖第 1-3 章，正文草稿与章节计划独立保存。`V2-5.2` 落地了 `openingChapterDrafts` 数据模型和保存/导出链路；`V2-5.3` 提供三章切换、手写、防抖自动保存、计划过期提醒和本地检查；`V2-5.4` 已接入“单章手动真实生成”，只组装当前章计划、相关事实、主角/压力源/金手指字段和前章结尾；`V2-5.5` 已补齐“确认当前章 -> 世界状态写回 -> 再次编辑自动撤回”的闭环；`V2-5.6` 允许针对单个本地检查缺口生成局部候选，人工采纳后才写入正文并保存快照。当前仍不自动抽取新增事实，也不扩到第 4-30 章正文。
+
+### 理论诊断证据化（V2）
+理论检测结果现在会携带结构化证据：大纲正文、字段化设定、前 30 章计划和明确缺口。右侧卡片保持折叠态简洁，默认只露出最值得处理的前 5 条诊断，展开后展示“问题、位置、建议改法、证据”；理论解释仍按需调用 AI，并会把这些本地证据作为输入。
+
+### V2-Trial-1：前三章连续试写与局部补写人工回归
+工程结构回归已通过，但真实作者体验仍需用至少两个差异题材项目人工验证。回归重点是前三章连续承接、局部补写质量、保存/快照/导出和 AI 调用可见性；结构脚本不调用真实 LLM，也不代替人工判断文本质量。
 
 ### Markdown 导出
 一键导出完整大纲和已存在的世界状态记录为 Markdown 文件，便于在其他编辑器中继续创作。
@@ -131,6 +166,16 @@ LLM_USE_MOCK=true
 | `npm run acceptance:v1` | V1 验收冒烟测试 |
 | `npm run acceptance:v2` | V2 卷纲字段冒烟测试 |
 | `npm run acceptance:world-state` | WorldState-1 世界状态模型冒烟测试 |
+| `npm run acceptance:protagonist` | V2-2.1 主角字段模型冒烟测试 |
+| `npm run acceptance:pressure-source` | V2-2.2 压力源链字段模型冒烟测试 |
+| `npm run acceptance:golden-finger` | V2-2.3 金手指字段模型冒烟测试 |
+| `npm run acceptance:opening-plan` | V2-4.1 前 30 章字段模型冒烟测试 |
+| `npm run acceptance:opening-drafts` | V2-5.2 前三章草稿保存链路冒烟测试 |
+| `npm run acceptance:opening-editor` | V2-5.3 正文编辑与本地检查冒烟测试 |
+| `npm run acceptance:opening-generation` | V2-5.4 单章真实正文生成与上下文组装冒烟测试 |
+| `npm run acceptance:opening-confirmation` | V2-5.5 章节确认、世界状态回写与撤回链路冒烟测试 |
+| `npm run acceptance:opening-gap-fill` | V2-5.6 正文缺口局部补写与人工采纳冒烟测试 |
+| `npm run acceptance:v2-trial-1` | V2-Trial-1 前三章连续试写结构回归（不调用真实 LLM） |
 | `npm run theory:eval` | 理论引擎评估测试 |
 
 ## 项目结构
@@ -143,6 +188,10 @@ spark-workshop/
 │   └── sw.js                 # Service Worker
 ├── scripts/                  # 测试脚本
 │   ├── run-theory-eval.mjs
+│   ├── run-golden-finger-fields-smoke.mjs
+│   ├── run-opening-chapter-plan-smoke.mjs
+│   ├── run-pressure-source-fields-smoke.mjs
+│   ├── run-protagonist-fields-smoke.mjs
 │   ├── run-v1-acceptance-smoke.mjs
 │   ├── run-v2-serial-arc-smoke.mjs
 │   └── run-world-state-smoke.mjs
@@ -187,6 +236,9 @@ spark-workshop/
 - `analyzeTastePreference`: 分析用户阅读偏好
 - `igniteSeed`: 引爆灵感生成世界观方案
 - `enhanceOutlineNode`: AI 补全大纲节点
+- `generateOpeningChapterPlan`: 生成前 30 章节奏表
+- `generateOpeningChapterDraft`: 生成当前章正文草稿
+- `fillOpeningChapterGap`: 针对一个本地检查缺口生成局部正文候选
 - `explainTheoryCheck`: 解释理论检测结果
 
 当前真实链路优先支持 OpenAI-compatible Chat Completions。其他 provider 类型用于后续扩展，不代表已经可用。
@@ -230,11 +282,32 @@ spark-workshop/
 - V1 自动回归：`npm run acceptance:v1`
 - V2 卷纲字段回归：`npm run acceptance:v2`
 - WorldState-1 回归：`npm run acceptance:world-state`
+- V2-2.1 主角字段回归：`npm run acceptance:protagonist`
+- V2-2.2 压力源链字段回归：`npm run acceptance:pressure-source`
+- V2-2.3 金手指字段回归：`npm run acceptance:golden-finger`
+- V2-4.1 前 30 章字段模型回归：`npm run acceptance:opening-plan`
+- V2-5.2 前三章草稿回归：`npm run acceptance:opening-drafts`
+- V2-5.3 正文编辑与本地检查回归：`npm run acceptance:opening-editor`
+- V2-5.4 单章真实正文生成回归：`npm run acceptance:opening-generation`
+- V2-5.5 章节确认与世界状态回写回归：`npm run acceptance:opening-confirmation`
+- V2-5.6 正文缺口局部补写回归：`npm run acceptance:opening-gap-fill`
+- V2-Trial-1 结构回归：`npm run acceptance:v2-trial-1`
 - V1 理论样例：`npm run theory:eval`
 - V1 收口记录：`../outputs/V1-Acceptance-3-内部试用回归记录.md`
 - V2 规划：`../outputs/V2-产品规划.md`
 - 世界状态可行性报告：`../outputs/V2-世界状态机与长篇防降智幻觉可行性报告.md`
 - WorldState-1 实现记录：`../outputs/WorldState-1-项目级结构化世界状态最小模型.md`
+- V2-2.1 实现记录：`../outputs/V2-2.1-主角字段模型与UI.md`
+- V2-2.2 实现记录：`../outputs/V2-2.2-压力源链字段模型与UI.md`
+- V2-2.3 实现记录：`../outputs/V2-2.3-金手指字段模型与UI.md`
+- V2-4.1 实现记录：`../outputs/V2-4.1-前30章字段模型.md`
+- V2-5.1 规划记录：`../outputs/V2-5.1-前三章正文试写最小闭环规划.md`
+- V2-5.2 草稿模型记录：`../outputs/V2-5.2-前三章正文草稿模型与保存链路.md`
+- V2-5.3 编辑与本地检查记录：`../outputs/V2-5.3-前三章正文编辑与本地检查.md`
+- V2-5.4 真实正文生成记录：`../outputs/V2-5.4-真实正文生成与上下文组装.md`
+- V2-5.5 章节确认记录：`../outputs/V2-5.5-章节确认、世界状态回写与端到端验收.md`
+- V2-5.6 局部补写记录：`../outputs/V2-5.6-正文缺口局部补写与人工采纳.md`
+- V2-Trial-1 人工回归记录：`../outputs/V2-Trial-1-前三章连续试写与局部补写人工回归.md`
 
 ## 许可证
 

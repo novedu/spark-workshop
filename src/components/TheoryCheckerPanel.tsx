@@ -14,9 +14,10 @@ import {
 } from "lucide-react";
 import { llmProvider } from "@/lib/llm";
 import { llmSourceCopy } from "@/lib/status-copy";
-import { getSeverityLabel, matchTheorySuggestions, runTheoryChecks } from "@/lib/theory-checker";
+import { formatTheoryEvidence, getSeverityLabel, matchTheorySuggestions, runTheoryChecks } from "@/lib/theory-checker";
 import { getTheoryById, v1Theories } from "@/lib/theory-library";
 import type {
+  OpeningChapterPlan,
   OutlineNode,
   TheoryCheckResult,
   TheoryDefinition,
@@ -29,6 +30,7 @@ import type {
 
 interface TheoryCheckerPanelProps {
   nodes: OutlineNode[];
+  openingChapterPlan?: OpeningChapterPlan | null;
   selectedNodeId: string | null;
   theorySuggestionStates?: Record<string, TheorySuggestionState>;
   onTheorySuggestionStatesChange?: (states: Record<string, TheorySuggestionState>) => void;
@@ -45,6 +47,8 @@ type ExplanationEntry = LlmTheorySuggestion & {
   source: "llm" | "fallback" | "cache" | "mock";
   loading: boolean;
 };
+
+const DEFAULT_VISIBLE_THEORY_LIMIT = 5;
 
 const plainExplanations: Record<V1TheoryId, string> = {
   T01: "先看这个阶段有没有清楚的起点、关门点和推进方向，别让读者读着读着找不到主线。",
@@ -80,8 +84,27 @@ const getNodeStructureSignature = (nodes: OutlineNode[]) =>
 
 const getNodeContentSignature = (nodes: OutlineNode[]) =>
   nodes
-    .map((node) => `${node.id}:${node.title}:${node.content}`)
+    .map((node) => `${node.id}:${node.title}:${node.content}:${JSON.stringify(node.metadata ?? {})}`)
     .join("|");
+
+const getOpeningPlanSignature = (plan?: OpeningChapterPlan | null) =>
+  plan
+    ? plan.chapters
+        .map((chapter) =>
+          [
+            chapter.chapterNumber,
+            chapter.title,
+            chapter.readerQuestion,
+            chapter.sceneTask,
+            chapter.pressureOrPayoff,
+            chapter.chapterHook,
+            chapter.requiredFactIds.join(","),
+            chapter.stateChange,
+            chapter.notes ?? ""
+          ].join(":")
+        )
+        .join("|")
+    : "";
 
 const cloneOutlineNodes = (nodes: OutlineNode[]) =>
   nodes.map((node) => ({
@@ -113,6 +136,7 @@ const buildFallbackExplanation = (
 
 export function TheoryCheckerPanel({
   nodes,
+  openingChapterPlan,
   selectedNodeId,
   theorySuggestionStates = {},
   onTheorySuggestionStatesChange
@@ -122,7 +146,9 @@ export function TheoryCheckerPanel({
   const [explanationByTheoryId, setExplanationByTheoryId] = useState<Record<string, ExplanationEntry>>({});
   const [showAllTheories, setShowAllTheories] = useState(false);
   const [showHandledTheories, setShowHandledTheories] = useState(false);
+  const [showOverflowSuggestions, setShowOverflowSuggestions] = useState(false);
   const [checkedNodes, setCheckedNodes] = useState<OutlineNode[]>(() => cloneOutlineNodes(nodes));
+  const [checkedOpeningChapterPlan, setCheckedOpeningChapterPlan] = useState<OpeningChapterPlan | null>(() => openingChapterPlan ?? null);
   const [checkedAt, setCheckedAt] = useState(() => Date.now());
   const [recheckStatus, setRecheckStatus] = useState<string | null>(null);
 
@@ -135,17 +161,23 @@ export function TheoryCheckerPanel({
   const checkedStructureSignature = useMemo(() => getNodeStructureSignature(checkedNodes), [checkedNodes]);
   const currentContentSignature = useMemo(() => getNodeContentSignature(nodes), [nodes]);
   const checkedContentSignature = useMemo(() => getNodeContentSignature(checkedNodes), [checkedNodes]);
-  const hasUncheckedChanges = currentContentSignature !== checkedContentSignature;
+  const currentOpeningPlanSignature = useMemo(() => getOpeningPlanSignature(openingChapterPlan), [openingChapterPlan]);
+  const checkedOpeningPlanSignature = useMemo(() => getOpeningPlanSignature(checkedOpeningChapterPlan), [checkedOpeningChapterPlan]);
+  const hasUncheckedChanges =
+    currentContentSignature !== checkedContentSignature ||
+    currentOpeningPlanSignature !== checkedOpeningPlanSignature;
 
   useEffect(() => {
     if (currentStructureSignature !== checkedStructureSignature) {
       setCheckedNodes(cloneOutlineNodes(nodes));
+      setCheckedOpeningChapterPlan(openingChapterPlan ?? null);
       setCheckedAt(Date.now());
       setExpandedTheoryId(null);
       setVisibleTheoryExplanationId(null);
+      setShowOverflowSuggestions(false);
       setRecheckStatus(null);
     }
-  }, [checkedStructureSignature, currentStructureSignature, nodes]);
+  }, [checkedStructureSignature, currentStructureSignature, nodes, openingChapterPlan]);
 
   useEffect(() => {
     if (hasUncheckedChanges) {
@@ -156,22 +188,32 @@ export function TheoryCheckerPanel({
   const handleRecheckTheories = () => {
     const now = Date.now();
     setCheckedNodes(cloneOutlineNodes(nodes));
+    setCheckedOpeningChapterPlan(openingChapterPlan ?? null);
     setCheckedAt(now);
     setRecheckStatus(`已重新检测 ${formatCheckTime(now)}`);
     setExpandedTheoryId(null);
     setVisibleTheoryExplanationId(null);
+    setShowOverflowSuggestions(false);
     setTimeout(() => setRecheckStatus(null), 3000);
   };
 
   const checkResultByTheoryId = useMemo(() => {
-    const results = checkedNodes.length > 0 ? runTheoryChecks({ outlineNodes: checkedNodes }) : [];
+    const results = checkedNodes.length > 0
+      ? runTheoryChecks({ outlineNodes: checkedNodes, openingChapterPlan: checkedOpeningChapterPlan ?? undefined })
+      : [];
     return new Map(results.map((result) => [result.theoryId, result]));
-  }, [checkedNodes]);
+  }, [checkedNodes, checkedOpeningChapterPlan]);
 
   const checkResults = useMemo(() => [...checkResultByTheoryId.values()], [checkResultByTheoryId]);
   const theoryMatches = useMemo(
-    () => (checkedNodes.length > 0 ? matchTheorySuggestions({ outlineNodes: checkedNodes }, selectedNodeId) : []),
-    [checkedNodes, selectedNodeId]
+    () =>
+      checkedNodes.length > 0
+        ? matchTheorySuggestions(
+            { outlineNodes: checkedNodes, openingChapterPlan: checkedOpeningChapterPlan ?? undefined },
+            selectedNodeId
+          )
+        : [],
+    [checkedNodes, checkedOpeningChapterPlan, selectedNodeId]
   );
   const checkResultSignature = useMemo(
     () =>
@@ -218,7 +260,7 @@ export function TheoryCheckerPanel({
         status: result.severity,
         location: result.location,
         reason: result.message,
-        evidence: []
+        evidence: (result.evidence ?? []).map(formatTheoryEvidence)
       });
       const source =
         explanation.llmMeta?.source === "cache"
@@ -319,6 +361,14 @@ export function TheoryCheckerPanel({
   const needsFixSuggestions = activeSuggestions.filter((suggestion) => suggestion.match.level === "needs_fix");
   const suggestCheckSuggestions = activeSuggestions.filter((suggestion) => suggestion.match.level === "suggest_check");
   const allTheorySuggestions = activeSuggestions.filter((suggestion) => suggestion.match.level === "hidden");
+  const visibleNeedsFixSuggestions = needsFixSuggestions.slice(0, DEFAULT_VISIBLE_THEORY_LIMIT);
+  const remainingVisibleSlots = Math.max(0, DEFAULT_VISIBLE_THEORY_LIMIT - visibleNeedsFixSuggestions.length);
+  const visibleSuggestCheckSuggestions = suggestCheckSuggestions.slice(0, remainingVisibleSlots);
+  const overflowSuggestions = [
+    ...needsFixSuggestions.slice(visibleNeedsFixSuggestions.length),
+    ...suggestCheckSuggestions.slice(visibleSuggestCheckSuggestions.length)
+  ];
+  const visibleFocusCount = visibleNeedsFixSuggestions.length + visibleSuggestCheckSuggestions.length;
 
   const renderTheoryCard = (suggestion: TheoryPanelItem, mode: "needs-fix" | "suggest-check" | "reference") => {
     const theoryId = suggestion.theory.id as V1TheoryId;
@@ -331,6 +381,7 @@ export function TheoryCheckerPanel({
     const handledState = theorySuggestionStates[theoryId]?.state;
     const canIgnore = explanation?.canIgnore ?? (suggestion.match.severity !== "fail");
     const showTheoryExplanation = visibleTheoryExplanationId === theoryId;
+    const evidence = suggestion.match.evidence.slice(0, 4);
 
     return (
       <article
@@ -392,9 +443,34 @@ export function TheoryCheckerPanel({
                       ))}
                     </div>
                   </div>
+                  {evidence.length > 0 && (
+                    <div className="diagnosis-field">
+                      <span>证据</span>
+                      <div className="theory-evidence-list">
+                        {evidence.map((item) => (
+                          <div className={`theory-evidence-item ${item.source}`} key={item.id}>
+                            <strong>{item.label}</strong>
+                            <p>{item.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <p className="check-item-message">{displayPlainExplanation}</p>
+                <>
+                  <p className="check-item-message">{displayPlainExplanation}</p>
+                  {evidence.length > 0 && (
+                    <div className="theory-evidence-list compact">
+                      {evidence.slice(0, 2).map((item) => (
+                        <div className={`theory-evidence-item ${item.source}`} key={item.id}>
+                          <strong>{item.label}</strong>
+                          <p>{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
 
               <p className="theory-reason">
@@ -530,12 +606,16 @@ export function TheoryCheckerPanel({
               <div className="diagnosis-section-header">
                 <div>
                   <strong>需要修改</strong>
-                  <small>规则明确命中的硬伤或风险</small>
+                  <small>
+                    {overflowSuggestions.length > 0
+                      ? `默认展示最值得处理的 ${visibleFocusCount} 条`
+                      : "规则明确命中的硬伤或风险"}
+                  </small>
                 </div>
                 <span>{needsFixSuggestions.length}</span>
               </div>
-              {needsFixSuggestions.length > 0 ? (
-                needsFixSuggestions.map((suggestion) => renderTheoryCard(suggestion, "needs-fix"))
+              {visibleNeedsFixSuggestions.length > 0 ? (
+                visibleNeedsFixSuggestions.map((suggestion) => renderTheoryCard(suggestion, "needs-fix"))
               ) : (
                 <div className="diagnosis-empty">
                   <Check size={15} aria-hidden />
@@ -544,7 +624,7 @@ export function TheoryCheckerPanel({
               )}
             </section>
 
-            {suggestCheckSuggestions.length > 0 && (
+            {visibleSuggestCheckSuggestions.length > 0 && (
               <section className="diagnosis-section" aria-label="建议检查">
                 <div className="diagnosis-section-header">
                   <div>
@@ -553,7 +633,29 @@ export function TheoryCheckerPanel({
                   </div>
                   <span>{suggestCheckSuggestions.length}</span>
                 </div>
-                {suggestCheckSuggestions.map((suggestion) => renderTheoryCard(suggestion, "suggest-check"))}
+                {visibleSuggestCheckSuggestions.map((suggestion) => renderTheoryCard(suggestion, "suggest-check"))}
+              </section>
+            )}
+
+            {overflowSuggestions.length > 0 && (
+              <section className="diagnosis-section overflow-diagnosis-section" aria-label="更多诊断">
+                <button
+                  type="button"
+                  className="show-all-theories-button"
+                  onClick={() => setShowOverflowSuggestions((current) => !current)}
+                  aria-expanded={showOverflowSuggestions}
+                >
+                  <ListChecks size={14} aria-hidden />
+                  {showOverflowSuggestions ? "收起更多诊断" : `查看其余诊断（${overflowSuggestions.length}）`}
+                  {showOverflowSuggestions ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+                </button>
+                {showOverflowSuggestions &&
+                  overflowSuggestions.map((suggestion) =>
+                    renderTheoryCard(
+                      suggestion,
+                      suggestion.match.level === "needs_fix" ? "needs-fix" : "suggest-check"
+                    )
+                  )}
               </section>
             )}
 

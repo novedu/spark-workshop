@@ -36,11 +36,35 @@ export const aiOperationProfiles: AiOperationProfile[] = [
   },
   {
     id: "enhanceOutlineNode",
-    name: "AI 补全",
+    name: "AI 补写",
     necessity: "manual",
-    trigger: "点击节点“AI补全”",
+    trigger: "点击节点“AI补写缺口”",
     tokenUse: "会调用真实 AI",
     costControl: "补全后自动保存；超时后本地兜底。"
+  },
+  {
+    id: "generateOpeningChapterPlan",
+    name: "前 30 章节奏表",
+    necessity: "manual",
+    trigger: "点击“生成节奏表”",
+    tokenUse: "会调用真实 AI",
+    costControl: "调用前确认；失败时使用本地章节模板兜底。"
+  },
+  {
+    id: "generateOpeningChapterDraft",
+    name: "正文试写",
+    necessity: "required",
+    trigger: "点击“AI生成当前章”",
+    tokenUse: "会调用真实 AI",
+    costControl: "只按单章手动触发；失败保留原稿，不用 mock 冒充正文。"
+  },
+  {
+    id: "fillOpeningChapterGap",
+    name: "正文缺口补写",
+    necessity: "manual",
+    trigger: "点击本地检查项的“AI补写”",
+    tokenUse: "会调用真实 AI",
+    costControl: "只补一个缺口并先预览；人工采纳后才修改正文。"
   },
   {
     id: "explainTheoryCheck",

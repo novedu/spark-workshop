@@ -3,6 +3,9 @@ export type PromptTemplateType =
   | "taste.analyze-preference"
   | "seed.ignite"
   | "outline.enhance-node"
+  | "opening.generate-chapter-plan"
+  | "opening.generate-chapter-draft"
+  | "opening.fill-chapter-gap"
   | "theory.explain-check"
   | "setting.extract-keywords";
 

@@ -32,13 +32,15 @@ const node = (
   kind: OutlineNode["kind"],
   title: string,
   content: string,
-  order: number
+  order: number,
+  metadata?: OutlineNode["metadata"]
 ): OutlineNode => ({
   id,
   kind,
   title,
   content,
-  order
+  order,
+  ...(metadata ? { metadata } : {})
 });
 
 const completeOutline: OutlineNode[] = [
@@ -171,6 +173,120 @@ export const theoryEvalSamples: TheoryEvalSample[] = [
         ? {
             ...item,
             content: "反派很坏，负责追杀主角，实力很强。"
+          }
+        : item
+    ),
+    expected: {
+      checkIncludes: ["T13"],
+      needsFixIncludes: ["T13"]
+    }
+  },
+  {
+    id: "weak-protagonist-empathy",
+    title: "主角只有身份，没有共情入口",
+    oldReaderNote: "知道主角是谁，但不知道为什么要替他急。",
+    creatorRisk: "开局容易变成设定说明，缺少让读者站队的第一口情绪。",
+    selectedNodeId: "protagonist",
+    outlineNodes: completeOutline.map((item) =>
+      item.id === "protagonist"
+        ? {
+            ...item,
+            content: "主角林岫是外门弟子，擅长记账和推演阵法，未来会成为宗门新秩序的设计者。"
+          }
+        : item
+    ),
+    expected: {
+      checkIncludes: ["T02"],
+      needsFixIncludes: ["T02"]
+    }
+  },
+  {
+    id: "conflict-no-stakes",
+    title: "有目标和阻碍，但没有失败代价",
+    oldReaderNote: "主角想赢，对手也挡路，但输了好像也没什么。",
+    creatorRisk: "冲突会变成任务清单，读者追读压力不够。",
+    selectedNodeId: "core-conflict",
+    outlineNodes: completeOutline.map((item) =>
+      item.id === "core-conflict"
+        ? {
+            ...item,
+            content: "主角目标是拿到外门试炼第一；现实阻碍是长老暗中限制名额，并安排同门竞争。"
+          }
+        : item
+    ),
+    expected: {
+      checkIncludes: ["T03"],
+      needsFixIncludes: ["T03"]
+    }
+  },
+  {
+    id: "foreshadowing-no-payoff",
+    title: "只埋伏笔，没有回收计划",
+    oldReaderNote: "前面挂了东西，但不知道作者后面会不会记得。",
+    creatorRisk: "容易堆神秘感，后期忘线或强行解释。",
+    selectedNodeId: "foreshadowing",
+    outlineNodes: completeOutline.map((item) =>
+      item.id === "foreshadowing"
+        ? {
+            ...item,
+            content: "伏笔：主角腰间旧铜牌会在靠近禁地时发热，似乎藏着秘密和异常线索。"
+          }
+        : item
+    ),
+    expected: {
+      checkIncludes: ["T04"],
+      needsFixIncludes: ["T04"]
+    }
+  },
+  {
+    id: "power-without-boundary",
+    title: "金手指只有能力，没有代价",
+    oldReaderNote: "外挂能赢，但没看到为什么不能一直用。",
+    creatorRisk: "越写越容易无成本横推，后续只能硬抬敌人。",
+    selectedNodeId: "golden-finger",
+    outlineNodes: completeOutline.map((item) =>
+      item.id === "golden-finger"
+        ? {
+            ...item,
+            content: "力量来源是祖传玉简觉醒，能力是复制别人刚用过的招式，并立刻反打。"
+          }
+        : item
+    ),
+    expected: {
+      checkIncludes: ["T11"],
+      needsFixIncludes: ["T11"]
+    }
+  },
+  {
+    id: "thin-serial-rhythm",
+    title: "卷纲像出版大纲，缺连载爽点循环",
+    oldReaderNote: "知道故事会发生什么，但不像一章追一章的网文。",
+    creatorRisk: "卷纲太概括，缺少压制、爆发、奖励、新危机的持续链条。",
+    selectedNodeId: "act-2",
+    outlineNodes: completeOutline.map((item) =>
+      item.kind === "act"
+        ? {
+            ...item,
+            content: item.id === "act-1" ? "开局介绍主角和世界。" : "本卷继续调查旧案，并推进人物关系。"
+          }
+        : item
+    ),
+    expected: {
+      checkIncludes: ["T01", "T07"],
+      needsFixIncludes: ["T07"]
+    }
+  },
+  {
+    id: "thin-world-ecology",
+    title: "世界观有名词，没有生态",
+    oldReaderNote: "设定听着好看，但不知道资源怎么流、势力为什么争。",
+    creatorRisk: "后续容易为了剧情临时发明门派、规则和职业。",
+    selectedNodeId: "world",
+    outlineNodes: completeOutline.map((item) =>
+      item.id === "world"
+        ? {
+            ...item,
+            content: "天空城漂浮在云海上，居民使用记忆灯照明，城市中心有一座古老高塔。"
           }
         : item
     ),

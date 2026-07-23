@@ -1,7 +1,13 @@
 import type {
   LlmResultMeta,
+  OpeningChapterGapFillInput,
+  OpeningChapterGapFillOutput,
+  OpeningChapterDraftGenerationInput,
+  OpeningChapterDraftGenerationOutput,
   OutlineNodeEnhancementInput,
   OutlineNodeEnhancementOutput,
+  OpeningChapterPlanGenerationInput,
+  OpeningChapterPlanGenerationOutput,
   RuleCheckResult,
   SeedIgnitionInput,
   SeedIgnitionOutput,
@@ -10,7 +16,7 @@ import type {
 } from "@/types/product";
 import { getAiRecoveryCopy } from "@/lib/ai-recovery-copy";
 import { getAiUsageSettings } from "@/lib/ai-usage-settings";
-import { finishAiRun, startAiRun } from "@/lib/ai-usage-meter";
+import { failAiRun, finishAiRun, startAiRun } from "@/lib/ai-usage-meter";
 import { mockLlmProvider } from "./mock-provider";
 import type { LlmProvider, TasteChoice, TasteSample } from "./types";
 
@@ -39,6 +45,24 @@ type ExplainTheoryCheckApiResponse = TheorySuggestion & {
 };
 
 type EnhanceOutlineNodeApiResponse = OutlineNodeEnhancementOutput & {
+  ok?: boolean;
+  source?: "llm";
+  error?: string;
+};
+
+type GenerateOpeningChapterPlanApiResponse = OpeningChapterPlanGenerationOutput & {
+  ok?: boolean;
+  source?: "llm";
+  error?: string;
+};
+
+type GenerateOpeningChapterDraftApiResponse = OpeningChapterDraftGenerationOutput & {
+  ok?: boolean;
+  source?: "llm";
+  error?: string;
+};
+
+type FillOpeningChapterGapApiResponse = OpeningChapterGapFillOutput & {
   ok?: boolean;
   source?: "llm";
   error?: string;
@@ -237,6 +261,113 @@ export const clientLlmProvider: LlmProvider = {
           fallbackReason: getAiRecoveryCopy(error, "AI补全").message
         }
       };
+    }
+  },
+
+  generateOpeningChapterPlan: async (
+    input: OpeningChapterPlanGenerationInput
+  ): Promise<OpeningChapterPlanGenerationOutput> => {
+    const runId = startAiRun("generateOpeningChapterPlan");
+    const cached = readCache<OpeningChapterPlanGenerationOutput>("generateOpeningChapterPlan", input);
+    if (cached) {
+      finishAiRun(runId, "cache");
+      return withMeta(cached, { source: "cache" });
+    }
+
+    try {
+      const result = await postJson<GenerateOpeningChapterPlanApiResponse>(
+        "/api/llm/generate-opening-chapter-plan",
+        input
+      );
+      if (!result.openingChapterPlan || !Array.isArray(result.openingChapterPlan.chapters)) {
+        throw new Error("generateOpeningChapterPlan API returned an invalid result.");
+      }
+      const output: OpeningChapterPlanGenerationOutput = {
+        openingChapterPlan: result.openingChapterPlan,
+        suggestions: Array.isArray(result.suggestions) ? result.suggestions : [],
+        llmMeta: {
+          source: result.source === "llm" ? "llm" : "mock"
+        }
+      };
+      if (output.llmMeta?.source === "llm") {
+        writeCache("generateOpeningChapterPlan", input, {
+          openingChapterPlan: output.openingChapterPlan,
+          suggestions: output.suggestions
+        });
+      }
+      finishAiRun(runId, output.llmMeta?.source ?? "mock", {
+        status: output.llmMeta?.source === "mock" ? "fallback" : "success"
+      });
+      return output;
+    } catch (error) {
+      console.warn("Real generateOpeningChapterPlan failed, using mock fallback:", error);
+      const fallback = await mockLlmProvider.generateOpeningChapterPlan(input);
+      finishAiRun(runId, "mock", {
+        status: "fallback",
+        error
+      });
+      return {
+        ...fallback,
+        llmMeta: {
+          source: "mock",
+          fallbackReason: getAiRecoveryCopy(error, "前 30 章生成").message
+        }
+      };
+    }
+  },
+
+  generateOpeningChapterDraft: async (
+    input: OpeningChapterDraftGenerationInput
+  ): Promise<OpeningChapterDraftGenerationOutput> => {
+    const runId = startAiRun("generateOpeningChapterDraft");
+
+    try {
+      const result = await postJson<GenerateOpeningChapterDraftApiResponse>(
+        "/api/llm/generate-opening-chapter-draft",
+        input
+      );
+      if (!result.content || !result.contextSummary) {
+        throw new Error("generateOpeningChapterDraft API returned an invalid result.");
+      }
+      finishAiRun(runId, "llm", { status: "success" });
+      return {
+        title: result.title,
+        content: result.content,
+        contextSummary: result.contextSummary,
+        llmMeta: {
+          source: "llm"
+        }
+      };
+    } catch (error) {
+      failAiRun(runId, error);
+      throw new Error(getAiRecoveryCopy(error, "正文试写", { fallbackAvailable: false }).message);
+    }
+  },
+
+  fillOpeningChapterGap: async (
+    input: OpeningChapterGapFillInput
+  ): Promise<OpeningChapterGapFillOutput> => {
+    const runId = startAiRun("fillOpeningChapterGap");
+
+    try {
+      const result = await postJson<FillOpeningChapterGapApiResponse>(
+        "/api/llm/fill-opening-chapter-gap",
+        input
+      );
+      if (!result.content || !result.contextSummary) {
+        throw new Error("fillOpeningChapterGap API returned an invalid result.");
+      }
+      finishAiRun(runId, "llm", { status: "success" });
+      return {
+        content: result.content,
+        contextSummary: result.contextSummary,
+        llmMeta: {
+          source: "llm"
+        }
+      };
+    } catch (error) {
+      failAiRun(runId, error);
+      throw new Error(getAiRecoveryCopy(error, "正文缺口补写", { fallbackAvailable: false }).message);
     }
   },
 

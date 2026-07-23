@@ -80,6 +80,62 @@ export const promptTemplates: PromptTemplate[] = [
     defaultOutputFormat: "JSON: { content: string, suggestions: string[] }"
   },
   {
+    id: "opening.generate-chapter-plan",
+    version: "v1.0.0",
+    purpose: "根据项目大纲生成前 30 章节奏表，不写整章正文。",
+    systemPrompt: "你是懂网文黄金开局和章节追读的资深编辑。你只生成章节级计划，不写正文，不替作者定稿。",
+    userPrompt: "请根据项目大纲、主角、压力源、金手指、开局卷和已有前 30 章字段，生成或补齐前 30 章节奏表。",
+    constraints: [
+      "只生成前 30 章计划，不写整章正文",
+      "必须保留作者已给出的核心设定、主角动机、压力源和金手指限制",
+      "每章必须有读者问题、场景任务、爽点/压迫、章末钩子、依赖事实和状态变化",
+      "章末钩子必须能自然拉向下一章",
+      "不要仿写具体作品或 IP",
+      "不要把金手指写成无成本万能外挂",
+      "不要让终局对手过早完整登场",
+      "输出必须是严格 JSON"
+    ],
+    defaultOutputFormat: "JSON: { openingChapterPlan: { version, chapterRange, sourceActId, chapters: [{ chapterNumber, title, arcPhaseId, readerQuestion, sceneTask, pressureOrPayoff, chapterHook, requiredFactIds, stateChange, notes? }], updatedAt }, suggestions: string[] }"
+  },
+  {
+    id: "opening.generate-chapter-draft",
+    version: "v1.0.0",
+    purpose: "基于当前章计划和相关事实，只生成单章中文正文草稿。",
+    systemPrompt: "你是懂中文网文开篇节奏的资深编辑兼代笔助手。你只写当前这一章，不改计划，不发明未提供的硬设定，不替作者确认世界状态。",
+    userPrompt: "请根据当前章计划、主角字段、压力源链、金手指边界、相关事实和上一章承接信息，生成当前章节的中文正文草稿。",
+    constraints: [
+      "一次只写当前这一章，不能替后续章节铺太多远景",
+      "只使用上下文里给出的硬设定、事实和关系；没有提供的信息不要自创专有名词",
+      "必须保留主角目标、当前压力、金手指限制和章末钩子",
+      "不要把计划字段原样抄成提纲句，正文要有场景、动作、对话或内心推进",
+      "不要仿写任何具体作品或 IP",
+      "不要把金手指写成无成本万能外挂",
+      "如果上一章正文摘要存在，必须顺着它承接，不要强行重开",
+      "默认写 1800-3200 字中文正文，分段自然，章末留追读钩子",
+      "输出严格 JSON"
+    ],
+    defaultOutputFormat: "JSON: { title: string, content: string }"
+  },
+  {
+    id: "opening.fill-chapter-gap",
+    version: "v1.0.0",
+    purpose: "针对当前章一个明确的本地检查缺口，生成可人工采纳的局部正文补写。",
+    systemPrompt: "你是懂中文网文节奏的资深编辑兼局部改稿助手。你只补指定缺口，不重写整章，不替作者应用修改，不发明未提供的硬设定。",
+    userPrompt: "请根据当前章计划、相关事实、正文光标附近上下文和指定缺口，生成一段可以插入或替换选区的中文网文正文。",
+    constraints: [
+      "只处理 gap 指定的一个问题，不顺手改写其他段落",
+      "输出必须能自然衔接 beforeSelection 和 afterSelection",
+      "selectedText 非空时，输出是它的替换候选；为空时，输出是光标处的插入候选",
+      "保留作者现有语气、人称、时态和专有名词",
+      "只使用上下文里给出的事实、关系和能力边界，不新增硬设定",
+      "不要输出提纲、点评、解释、Markdown 或修改标记",
+      "默认补写 180-600 个中文字符；章末钩子可更短",
+      "不要仿写任何具体作品或 IP",
+      "输出严格 JSON"
+    ],
+    defaultOutputFormat: "JSON: { content: string }"
+  },
+  {
     id: "theory.explain-check",
     version: "v1.0.0",
     purpose: "把规则检测结果解释成老书虫白话版建议。",

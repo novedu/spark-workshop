@@ -2,8 +2,15 @@ import { buildPrompt } from "@/lib/prompts";
 import { getSimilarSettingHints } from "@/lib/similar-settings";
 import { getTheoryById } from "@/lib/theory-library";
 import type {
+  OpeningChapterGapFillInput,
+  OpeningChapterGapFillOutput,
+  OpeningChapterDraftGenerationInput,
+  OpeningChapterDraftGenerationOutput,
   OutlineNodeEnhancementInput,
   OutlineNodeEnhancementOutput,
+  OpeningChapterPlan,
+  OpeningChapterPlanGenerationInput,
+  OpeningChapterPlanGenerationOutput,
   PacePreference,
   PreferenceLevel,
   RuleCheckResult,
@@ -18,6 +25,8 @@ import type {
 import { createLlmAdapter } from "./adapters";
 import { getLlmRuntimeConfig } from "./config";
 import { parseLlmJson } from "./json";
+import { ensureOpeningChapterPlan } from "../opening-chapter-plan";
+import { buildOpeningChapterDraftContextSummary } from "../opening-chapter-generation";
 import type { TasteChoice, TasteSample } from "./types";
 
 type RawScheme = Partial<Omit<WorldScheme, "similarSettingHints">> & {
@@ -35,6 +44,20 @@ type RawTheorySuggestion = Partial<TheorySuggestion> & {
 
 type RawOutlineNodeEnhancement = Partial<OutlineNodeEnhancementOutput> & {
   suggestions?: unknown;
+};
+
+type RawOpeningChapterPlanOutput = Partial<OpeningChapterPlanGenerationOutput> & {
+  openingChapterPlan?: Partial<OpeningChapterPlan>;
+  suggestions?: unknown;
+};
+
+type RawOpeningChapterDraftOutput = Partial<OpeningChapterDraftGenerationOutput> & {
+  title?: unknown;
+  content?: unknown;
+};
+
+type RawOpeningChapterGapFillOutput = Partial<OpeningChapterGapFillOutput> & {
+  content?: unknown;
 };
 
 type RawTasteSample = Partial<TasteSample>;
@@ -207,8 +230,8 @@ const normalizeOutlineNodeEnhancement = (
 ): OutlineNodeEnhancementOutput => {
   const fallbackByKind: Record<string, string> = {
     protagonist: "补充主角姓名、底层欲望、开场困境和成长弧线。",
-    antagonist: "补充阶段性压力来源、目标、资源、压迫方式，以及它如何和主角欲望形成冲突；不要求开局就确定终极反派。",
-    goldenFinger: "补充金手指来源、代价、限制和升级边界。",
+    antagonist: "开局压力源：补充前三章就压住主角的人、规则或资源困境。\n开局压力源出场：1-30章 / 开局卷。\n阶段 boss：补充当前卷或下一卷负责追打主角的具象对手。\n阶段 boss出场：31-120章 / 新手升级卷。\n制度 / 势力压力：补充持续制造压迫的制度、组织或利益链。\n制度 / 势力压力出场：251-450章 / 势力扩张卷。\n终局对手：先写终局影子或方向，不要求完整定死。\n终局对手出场：651章后逐步显形。\n压力升级方式：说明主角每次破局后，压力源如何升级或换层。",
+    goldenFinger: "能力核心：补充金手指真正让主角赢的机制。\n限制条件：补充什么情况下不能用、不能连续用或需要什么前置条件。\n使用代价：补充每次使用要付出的具体代价。\n升级方式：补充能力如何随卷或阶段升级。\n失控风险：补充能力开太大后的反噬或副作用。",
     conflict: "补充主角目标、现实阻碍、失败代价和冲突升级方式。",
     act: "补充本卷目标、阶段压力源、升级资源、小高潮、卷尾反转或下一卷钩子。",
     arcPhase: "补充本阶段的读者问题、压力源、爽点兑现、阶段钩子和状态变化。",
@@ -225,6 +248,113 @@ const normalizeOutlineNodeEnhancement = (
       "保留最能制造期待感的一条。",
       "检查补写内容是否能服务核心冲突。"
     ])
+  };
+};
+
+const normalizeOpeningChapterPlanOutput = (
+  raw: RawOpeningChapterPlanOutput,
+  input: OpeningChapterPlanGenerationInput
+): OpeningChapterPlanGenerationOutput => {
+  const fallback = ensureOpeningChapterPlan({
+    outlineNodes: input.outlineNodes,
+    openingChapterPlan: input.openingChapterPlan,
+    updatedAt: new Date().toISOString()
+  });
+  const rawPlan = raw.openingChapterPlan;
+  const rawChapters = Array.isArray(rawPlan?.chapters) ? rawPlan.chapters : [];
+  const validChapterByNumber = new Map(
+    rawChapters
+      .filter((chapter) => {
+        if (!chapter || typeof chapter !== "object") return false;
+        const chapterNumber = Number((chapter as { chapterNumber?: unknown }).chapterNumber);
+        return Number.isInteger(chapterNumber) && chapterNumber >= 1 && chapterNumber <= 30;
+      })
+      .map((chapter) => {
+        const source = chapter as Record<string, unknown>;
+        const chapterNumber = Number(source.chapterNumber);
+        return [
+          chapterNumber,
+          {
+            chapterNumber,
+            title: normalizeText(source.title, fallback.chapters[chapterNumber - 1].title),
+            arcPhaseId: typeof source.arcPhaseId === "string" ? source.arcPhaseId : fallback.chapters[chapterNumber - 1].arcPhaseId,
+            readerQuestion: normalizeText(source.readerQuestion, fallback.chapters[chapterNumber - 1].readerQuestion),
+            sceneTask: normalizeText(source.sceneTask, fallback.chapters[chapterNumber - 1].sceneTask),
+            pressureOrPayoff: normalizeText(source.pressureOrPayoff, fallback.chapters[chapterNumber - 1].pressureOrPayoff),
+            chapterHook: normalizeText(source.chapterHook, fallback.chapters[chapterNumber - 1].chapterHook),
+            requiredFactIds: Array.isArray(source.requiredFactIds)
+              ? source.requiredFactIds.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 8)
+              : fallback.chapters[chapterNumber - 1].requiredFactIds,
+            stateChange: normalizeText(source.stateChange, fallback.chapters[chapterNumber - 1].stateChange),
+            notes: typeof source.notes === "string" ? source.notes.trim() : undefined
+          }
+        ];
+      })
+  );
+
+  return {
+    openingChapterPlan: {
+      ...fallback,
+      sourceActId: typeof rawPlan?.sourceActId === "string" ? rawPlan.sourceActId : fallback.sourceActId,
+      chapters: fallback.chapters.map((chapter) => validChapterByNumber.get(chapter.chapterNumber) ?? chapter),
+      updatedAt: new Date().toISOString()
+    },
+    suggestions: normalizeStringList(raw.suggestions, [
+      "先重点人工检查前三章钩子、压迫和关门。",
+      "把章末钩子替换成你的专有名词。",
+      "检查每章依赖事实是否和主角、压力源、金手指一致。"
+    ])
+  };
+};
+
+const normalizeOpeningChapterDraftOutput = (
+  raw: RawOpeningChapterDraftOutput,
+  input: OpeningChapterDraftGenerationInput
+): OpeningChapterDraftGenerationOutput => {
+  const title = normalizeText(raw.title, input.currentChapter.title || `第${input.chapterNumber}章`);
+  const content = normalizeText(raw.content, "");
+  if (!content) {
+    throw new Error("generateOpeningChapterDraft response must include content.");
+  }
+  const factIds = input.requiredFacts.map((fact) => fact.id);
+
+  return {
+    title,
+    content,
+    contextSummary: {
+      factIds,
+      confirmedEventIds: input.confirmedEvents.map((event) => event.id),
+      previousChapterNumber: input.previousChapter?.chapterNumber,
+      fieldGroups: [
+        input.protagonistSummary && Object.values(input.protagonistSummary).some(Boolean)
+          ? "主角"
+          : factIds.some((factId) => factId.startsWith("protagonist")) ? "主角" : "",
+        input.pressureSourceSummary.length > 0
+          ? "压力源"
+          : factIds.some((factId) => factId.startsWith("pressure-")) ? "压力源" : "",
+        input.goldenFingerSummary.length > 0
+          ? "金手指"
+          : factIds.some((factId) => factId.startsWith("golden-finger-")) ? "金手指" : ""
+      ].filter((value): value is string => Boolean(value))
+    }
+  };
+};
+
+const normalizeOpeningChapterGapFillOutput = (
+  raw: RawOpeningChapterGapFillOutput,
+  input: OpeningChapterGapFillInput
+): OpeningChapterGapFillOutput => {
+  const content = normalizeText(raw.content, "");
+  if (!content) {
+    throw new Error("fillOpeningChapterGap response must include content.");
+  }
+
+  return {
+    content,
+    contextSummary: {
+      ...buildOpeningChapterDraftContextSummary(input),
+      gapId: input.gap.id
+    }
   };
 };
 
@@ -349,7 +479,16 @@ export const serverLlmProvider = {
       systemConstraints: [
         "返回严格 JSON 对象，不要加入解释性文字。",
         "content 必须是中文大纲内容，不是正文片段。",
-        "content 控制在 120-260 个中文字符。",
+        input.node.kind === "antagonist"
+          ? "如果当前节点是 antagonist，content 必须使用这些标签：开局压力源、开局压力源出场、阶段 boss、阶段 boss出场、制度 / 势力压力、制度 / 势力压力出场、终局对手、终局对手出场、压力升级方式。不要把终局对手在开局写死。"
+          : input.node.kind === "goldenFinger"
+            ? "如果当前节点是 goldenFinger，content 必须使用这些标签：能力核心、限制条件、使用代价、升级方式、失控风险。不要写成无成本万能外挂。"
+          : "保持当前节点类型需要的字段口径，优先补目标、阻碍、代价和后续推进。",
+        input.node.kind === "antagonist"
+          ? "content 控制在 220-520 个中文字符，允许用多行标签承载压力链。"
+          : input.node.kind === "goldenFinger"
+            ? "content 控制在 180-420 个中文字符，允许用多行标签承载能力边界。"
+          : "content 控制在 120-260 个中文字符。",
         "suggestions 必须是 2-3 条下一步改写提醒。"
       ]
     });
@@ -365,6 +504,150 @@ export const serverLlmProvider = {
     });
     return normalizeOutlineNodeEnhancement(
       parseLlmJson<RawOutlineNodeEnhancement>(response.content),
+      input
+    );
+  },
+
+  generateOpeningChapterPlan: async (
+    input: OpeningChapterPlanGenerationInput
+  ): Promise<OpeningChapterPlanGenerationOutput> => {
+    const config = getLlmRuntimeConfig();
+    if (!config.configured) {
+      throw new Error("LLM provider is not configured.");
+    }
+
+    const currentPlan = ensureOpeningChapterPlan({
+      outlineNodes: input.outlineNodes,
+      openingChapterPlan: input.openingChapterPlan,
+      updatedAt: new Date().toISOString()
+    });
+    const compactNodes = input.outlineNodes.map((node) => ({
+      id: node.id,
+      kind: node.kind,
+      title: node.title,
+      contentPreview: node.content.trim().slice(0, 160),
+      metadata: node.metadata
+    }));
+    const prompt = buildPrompt("opening.generate-chapter-plan", {
+      additionalContext: {
+        outlineNodes: compactNodes,
+        currentOpeningChapterPlan: currentPlan
+      },
+      systemConstraints: [
+        "返回严格 JSON 对象，不要加入解释性文字。",
+        "openingChapterPlan.chapters 必须包含 30 章，chapterNumber 从 1 到 30。",
+        "不要写正文段落；sceneTask 只写场景任务，pressureOrPayoff 只写节奏用途。",
+        "requiredFactIds 只能使用上下文里已有或明显约定的事实 ID。"
+      ]
+    });
+    const adapter = createLlmAdapter(config.provider, config);
+    const response = await adapter.generate({
+      provider: config.provider,
+      model: config.model,
+      messages: prompt.messages,
+      temperature: 0.62,
+      maxTokens: 4200,
+      timeoutMs: taskTimeout(config.timeoutMs, 90000),
+      responseFormat: "json"
+    });
+    return normalizeOpeningChapterPlanOutput(
+      parseLlmJson<RawOpeningChapterPlanOutput>(response.content),
+      input
+    );
+  },
+
+  generateOpeningChapterDraft: async (
+    input: OpeningChapterDraftGenerationInput
+  ): Promise<OpeningChapterDraftGenerationOutput> => {
+    const config = getLlmRuntimeConfig();
+    if (!config.configured) {
+      throw new Error("LLM provider is not configured.");
+    }
+
+    const prompt = buildPrompt("opening.generate-chapter-draft", {
+      additionalContext: {
+        projectTitle: input.projectTitle,
+        seedText: input.seedText,
+        selectedScheme: input.selectedScheme,
+        currentChapter: input.currentChapter,
+        protagonistSummary: input.protagonistSummary,
+        pressureSourceSummary: input.pressureSourceSummary,
+        goldenFingerSummary: input.goldenFingerSummary,
+        requiredFacts: input.requiredFacts,
+        confirmedEvents: input.confirmedEvents,
+        previousChapter: input.previousChapter
+      },
+      systemConstraints: [
+        "返回严格 JSON 对象，不要加入解释性文字。",
+        "title 只写当前章节标题，可在作者原标题基础上微调，不超过 20 个中文字符。",
+        "content 只写当前章节正文，不要附带提纲、点评、下一章预告或 Markdown 标记。",
+        "正文必须承接 currentChapter 的 readerQuestion、sceneTask、pressureOrPayoff、chapterHook 和 stateChange。",
+        "requiredFacts 里给出的事实是硬约束，不能自相矛盾。",
+        "如果 previousChapter 存在，必须自然承接 endingExcerpt；如果不存在，不要假装读过上一章。",
+        "confirmedEvents 只可作为已发生事实使用，不能擅自扩写为新的设定结论。",
+        "未提供的终局设定、人物姓名或地图专有名词不要自行发明。"
+      ]
+    });
+    const adapter = createLlmAdapter(config.provider, config);
+    const response = await adapter.generate({
+      provider: config.provider,
+      model: config.model,
+      messages: prompt.messages,
+      temperature: 0.72,
+      maxTokens: 3200,
+      timeoutMs: taskTimeout(config.timeoutMs, 120000),
+      responseFormat: "json"
+    });
+    return normalizeOpeningChapterDraftOutput(
+      parseLlmJson<RawOpeningChapterDraftOutput>(response.content),
+      input
+    );
+  },
+
+  fillOpeningChapterGap: async (
+    input: OpeningChapterGapFillInput
+  ): Promise<OpeningChapterGapFillOutput> => {
+    const config = getLlmRuntimeConfig();
+    if (!config.configured) {
+      throw new Error("LLM provider is not configured.");
+    }
+
+    const prompt = buildPrompt("opening.fill-chapter-gap", {
+      additionalContext: {
+        projectTitle: input.projectTitle,
+        selectedScheme: input.selectedScheme,
+        currentChapter: input.currentChapter,
+        protagonistSummary: input.protagonistSummary,
+        pressureSourceSummary: input.pressureSourceSummary,
+        goldenFingerSummary: input.goldenFingerSummary,
+        requiredFacts: input.requiredFacts,
+        confirmedEvents: input.confirmedEvents,
+        previousChapter: input.previousChapter,
+        gap: input.gap,
+        draftContext: input.draftContext
+      },
+      systemConstraints: [
+        "返回严格 JSON 对象，不要加入解释性文字。",
+        "content 只写可插入正文的候选文本，不要输出标题、点评、前后对照或 Markdown。",
+        "只解决 gap 指定的问题，不重写整章。",
+        "必须与 beforeSelection 和 afterSelection 自然衔接。",
+        "selectedText 非空时视为待替换内容；不得遗漏其仍然有效的事实。",
+        "requiredFacts 和 confirmedEvents 是硬约束，不可改写或新增结论。",
+        "保持当前正文的人称、语气和专有名词，不自创新人物、新能力或新地图。"
+      ]
+    });
+    const adapter = createLlmAdapter(config.provider, config);
+    const response = await adapter.generate({
+      provider: config.provider,
+      model: config.model,
+      messages: prompt.messages,
+      temperature: 0.68,
+      maxTokens: 1100,
+      timeoutMs: taskTimeout(config.timeoutMs, 90000),
+      responseFormat: "json"
+    });
+    return normalizeOpeningChapterGapFillOutput(
+      parseLlmJson<RawOpeningChapterGapFillOutput>(response.content),
       input
     );
   },

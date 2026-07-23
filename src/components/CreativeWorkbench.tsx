@@ -25,15 +25,38 @@ import { buildProjectMarkdown, sanitizeMarkdownFilename } from "@/lib/export-mar
 import { shouldConfirmAiOperation } from "@/lib/ai-usage-settings";
 import { getAiRecoveryCopy } from "@/lib/ai-recovery-copy";
 import { getNodeEmotionGoal } from "@/lib/emotion-goals";
+import { ensureGoldenFingerMetadata } from "@/lib/golden-finger-fields";
 import { llmProvider } from "@/lib/llm";
+import {
+  applyOpeningChapterGapCandidate,
+  buildOpeningChapterDraftContextSummary,
+  buildOpeningChapterDraftGenerationInput,
+  buildOpeningChapterGapFillInput,
+  openingChapterGapSelectionLimit
+} from "@/lib/opening-chapter-generation";
+import {
+  ensureOpeningChapterDrafts,
+  getOpeningChapterPlanSignature,
+  isOpeningChapterDraftStale
+} from "@/lib/opening-chapter-drafts";
+import { ensureOpeningChapterPlan } from "@/lib/opening-chapter-plan";
 import { createOutlineFromScheme, createProjectId, ensureSerialArcNodes } from "@/lib/outline-template";
-import { ensureWorldState } from "@/lib/world-state";
+import { ensurePressureSourceMetadata } from "@/lib/pressure-source-fields";
+import { ensureProtagonistMetadata } from "@/lib/protagonist-fields";
+import { ensureWorldState, upsertOpeningChapterStateEvent } from "@/lib/world-state";
 import { getOutlineNodeDisplayTitle, groupOutlineNodes, outlineKindDisplayLabels } from "@/lib/outline-ux";
 import { buildSchemeTheoryDiagnostics } from "@/lib/scheme-theory-diagnostics";
 import { localStore } from "@/lib/storage";
 import { llmSourceCopy } from "@/lib/status-copy";
 import { runTheoryChecks } from "@/lib/theory-checker";
 import { OutlineEditor } from "./OutlineEditor";
+import {
+  OpeningChapterDraftEditor,
+  type OpeningGapFillFeedback,
+  type OpeningGapFillRequest,
+  type OpeningDraftSaveState
+} from "./OpeningChapterDraftEditor";
+import { OpeningChapterPlanEditor } from "./OpeningChapterPlanEditor";
 import { QualityChecklistPanel } from "./QualityChecklistPanel";
 import { TheoryCheckerPanel } from "./TheoryCheckerPanel";
 import type {
@@ -42,6 +65,11 @@ import type {
   UserPreference,
   ProjectSnapshot,
   OutlineNode,
+  OpeningChapterDraftSet,
+  OpeningChapterDraftNumber,
+  OpeningChapterDraftGenerationContextSummary,
+  OpeningChapterPlan,
+  OpeningChapterGapId,
   SimilarSettingHint,
   TheorySuggestionState
 } from "@/types/product";
@@ -90,9 +118,16 @@ interface CreativeWorkbenchProps {
   onProjectSaved?: (project: Project) => void;
 }
 
+const normalizeOutlineNodes = (nodes: OutlineNode[]) =>
+  ensureSerialArcNodes(nodes)
+    .map(ensureProtagonistMetadata)
+    .map(ensurePressureSourceMetadata)
+    .map(ensureGoldenFingerMetadata);
+
 export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeWorkbenchProps) {
   const draftProjectIdRef = useRef(project?.id || createProjectId());
   const draftCreatedAtRef = useRef(project?.createdAt || new Date().toISOString());
+  const openingDraftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [seedText, setSeedText] = useState(project?.seedText || "");
   const [schemes, setSchemes] = useState<WorldScheme[]>(project ? [project.selectedScheme] : []);
   const [selectedScheme, setSelectedScheme] = useState<WorldScheme>(
@@ -110,8 +145,31 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
   const [coreConcept, setCoreConcept] = useState(project?.selectedScheme?.coreConcept || "");
   const [powerSystem, setPowerSystem] = useState(project?.selectedScheme?.powerSystem || "");
   const [conflictType, setConflictType] = useState(project?.selectedScheme?.conflictType || "");
-  const initialOutlineNodes = project?.outlineNodes ? ensureSerialArcNodes(project.outlineNodes) : [];
+  const initialOutlineNodes = project?.outlineNodes ? normalizeOutlineNodes(project.outlineNodes) : [];
+  const initialOpeningChapterPlan = initialOutlineNodes.length > 0
+    ? ensureOpeningChapterPlan({
+        outlineNodes: initialOutlineNodes,
+        openingChapterPlan: project?.openingChapterPlan,
+        updatedAt: project?.updatedAt || draftCreatedAtRef.current
+      })
+    : project?.openingChapterPlan ?? null;
+  const initialOpeningChapterDrafts = initialOpeningChapterPlan
+    ? ensureOpeningChapterDrafts({
+        openingChapterPlan: initialOpeningChapterPlan,
+        openingChapterDrafts: project?.openingChapterDrafts,
+        updatedAt: project?.updatedAt || draftCreatedAtRef.current
+      })
+    : project?.openingChapterDrafts ?? null;
+  const initialWorldState = ensureWorldState({
+    outlineNodes: initialOutlineNodes,
+    openingChapterPlan: initialOpeningChapterPlan ?? undefined,
+    worldState: project?.worldState,
+    updatedAt: project?.updatedAt || draftCreatedAtRef.current
+  }, project?.updatedAt || draftCreatedAtRef.current);
   const [outlineNodes, setOutlineNodes] = useState<OutlineNode[]>(initialOutlineNodes);
+  const [openingChapterPlan, setOpeningChapterPlan] = useState<OpeningChapterPlan | null>(initialOpeningChapterPlan);
+  const [openingChapterDrafts, setOpeningChapterDrafts] = useState<OpeningChapterDraftSet | null>(initialOpeningChapterDrafts);
+  const [projectWorldState, setProjectWorldState] = useState(initialWorldState);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialOutlineNodes[0]?.id || null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -126,6 +184,29 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
   const [preference, setPreference] = useState<UserPreference | null>(null);
   const [enhancingNodeId, setEnhancingNodeId] = useState<string | null>(null);
   const [enhanceStatus, setEnhanceStatus] = useState<string | null>(null);
+  const [generatingOpeningPlan, setGeneratingOpeningPlan] = useState(false);
+  const [openingPlanStatus, setOpeningPlanStatus] = useState<string | null>(null);
+  const [openingPlanSuggestions, setOpeningPlanSuggestions] = useState<string[]>([]);
+  const [openingDraftSaveState, setOpeningDraftSaveState] = useState<OpeningDraftSaveState>("idle");
+  const [openingDraftGeneratingChapter, setOpeningDraftGeneratingChapter] = useState<OpeningChapterDraftNumber | null>(null);
+  const [openingDraftGenerationFeedback, setOpeningDraftGenerationFeedback] = useState<{
+    chapterNumber: OpeningChapterDraftNumber;
+    tone: "pending" | "success" | "error";
+    message: string;
+    meta?: LlmResultMeta | null;
+    contextSummary?: OpeningChapterDraftGenerationContextSummary;
+  } | null>(null);
+  const [openingDraftConfirmingChapter, setOpeningDraftConfirmingChapter] = useState<OpeningChapterDraftNumber | null>(null);
+  const [openingDraftConfirmationFeedback, setOpeningDraftConfirmationFeedback] = useState<{
+    chapterNumber: OpeningChapterDraftNumber;
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
+  const [openingDraftGapFilling, setOpeningDraftGapFilling] = useState<{
+    chapterNumber: OpeningChapterDraftNumber;
+    gapId: OpeningChapterGapId;
+  } | null>(null);
+  const [openingDraftGapFillFeedback, setOpeningDraftGapFillFeedback] = useState<OpeningGapFillFeedback | null>(null);
   const [theorySuggestionStates, setTheorySuggestionStates] = useState<Record<string, TheorySuggestionState>>(
     project?.theorySuggestionStates || {}
   );
@@ -143,8 +224,18 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
       draftProjectIdRef.current = project.id;
       draftCreatedAtRef.current = project.createdAt;
       setTheorySuggestionStates(project.theorySuggestionStates || {});
+      setProjectWorldState(ensureWorldState({
+        outlineNodes: project.outlineNodes ?? [],
+        openingChapterPlan: project.openingChapterPlan,
+        worldState: project.worldState,
+        updatedAt: project.updatedAt
+      }, project.updatedAt));
     }
   }, [project?.id, project?.createdAt]);
+
+  useEffect(() => () => {
+    if (openingDraftSaveTimerRef.current) clearTimeout(openingDraftSaveTimerRef.current);
+  }, []);
 
   const loadPreference = async () => {
     try {
@@ -196,9 +287,26 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
   const hasProjectContent = seedText.trim().length > 0 || outlineNodes.length > 0;
   const aiSourceText = igniteMeta ? llmSourceCopy[igniteMeta.source].label : "AI 待调用";
   const aiSourceTone = igniteMeta?.source ?? "idle";
-  const projectStatusText = project?.id ? "本地项目已建立" : hasProjectContent ? "新草稿，待保存" : "空白草稿";
+  const projectStatusText = project?.id ? "本地项目已建立" : hasProjectContent ? "新项目，本地草稿" : "空白草稿";
   const theoryStatusText = outlineNodes.length > 0 ? "理论检测：本地规则" : "理论检测：待大纲";
   const snapshotStatusIsError = snapshotStatus?.includes("失败") || snapshotStatus?.includes("读取");
+  const openingDraftKnownFactIds = useMemo(() => {
+    if (outlineNodes.length === 0) return [];
+    const timestamp = project?.updatedAt || draftCreatedAtRef.current;
+    const currentWorldState = ensureWorldState({
+      outlineNodes,
+      openingChapterPlan: openingChapterPlan ?? undefined,
+      worldState: projectWorldState,
+      updatedAt: timestamp
+    }, timestamp);
+
+    return [
+      ...currentWorldState.entities.map((entity) => entity.id),
+      ...currentWorldState.relations.map((relation) => relation.id),
+      ...currentWorldState.foreshadowings.map((foreshadowing) => foreshadowing.id),
+      ...currentWorldState.events.map((event) => event.id)
+    ];
+  }, [openingChapterPlan, outlineNodes, project?.updatedAt, projectWorldState]);
 
   const getOutlineNodeSummary = (node: OutlineNode) => {
     const chapterRange = node.metadata?.chapterRange;
@@ -227,12 +335,55 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
     return `${snapshotReasonLabels[snapshot.reason]} · ${nodeCount} 个节点`;
   };
 
+  const reconcileOpeningDraftWorldState = (
+    previousDrafts: OpeningChapterDraftSet | null,
+    nextDrafts: OpeningChapterDraftSet,
+    baseWorldState = projectWorldState
+  ) => {
+    if (!openingChapterPlan || !previousDrafts) return baseWorldState;
+
+    let nextWorldState = baseWorldState;
+    for (const nextDraft of nextDrafts.chapters) {
+      const previousDraft = previousDrafts.chapters.find((draft) => draft.chapterNumber === nextDraft.chapterNumber);
+      const chapterPlan = openingChapterPlan.chapters.find((chapter) => chapter.chapterNumber === nextDraft.chapterNumber);
+      if (!previousDraft || !chapterPlan) continue;
+
+      if (previousDraft.stateChangeStatus !== "confirmed" && nextDraft.stateChangeStatus === "confirmed") {
+        nextWorldState = upsertOpeningChapterStateEvent(nextWorldState, chapterPlan, "confirmed");
+        continue;
+      }
+
+      if (previousDraft.stateChangeStatus === "confirmed" && nextDraft.stateChangeStatus !== "confirmed") {
+        nextWorldState = upsertOpeningChapterStateEvent(nextWorldState, chapterPlan, "retracted");
+      }
+    }
+
+    return nextWorldState;
+  };
+
   const applySchemeToOutline = (scheme: WorldScheme) => {
+    const timestamp = new Date().toISOString();
+    const nextOutlineNodes = normalizeOutlineNodes(createOutlineFromScheme(scheme));
     setSelectedScheme(scheme);
     setCoreConcept(scheme.coreConcept || "");
     setPowerSystem(scheme.powerSystem || "");
     setConflictType(scheme.conflictType || "");
-    setOutlineNodes(createOutlineFromScheme(scheme));
+    setOutlineNodes(nextOutlineNodes);
+    const nextOpeningChapterPlan = ensureOpeningChapterPlan({
+      outlineNodes: nextOutlineNodes,
+      updatedAt: timestamp
+    });
+    setOpeningChapterPlan(nextOpeningChapterPlan);
+    const nextOpeningChapterDrafts = ensureOpeningChapterDrafts({
+      openingChapterPlan: nextOpeningChapterPlan,
+      updatedAt: timestamp
+    });
+    setOpeningChapterDrafts(nextOpeningChapterDrafts);
+    setProjectWorldState(ensureWorldState({
+      outlineNodes: nextOutlineNodes,
+      openingChapterPlan: nextOpeningChapterPlan,
+      updatedAt: timestamp
+    }, timestamp));
     setSelectedNodeId("world");
   };
 
@@ -270,7 +421,13 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
     }
   };
 
-  const buildCurrentProjectData = (id?: string, outlineNodeOverride?: OutlineNode[]): Project => {
+  const buildCurrentProjectData = (
+    id?: string,
+    outlineNodeOverride?: OutlineNode[],
+    openingChapterPlanOverride?: OpeningChapterPlan | null,
+    openingChapterDraftsOverride?: OpeningChapterDraftSet | null,
+    worldStateOverride = projectWorldState
+  ): Project => {
     const now = new Date().toISOString();
     const schemeData = {
       ...selectedScheme,
@@ -278,11 +435,22 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
       powerSystem,
       conflictType
     };
-    const sourceNodes = ensureSerialArcNodes(outlineNodeOverride ?? outlineNodes);
+    const sourceNodes = normalizeOutlineNodes(outlineNodeOverride ?? outlineNodes);
     const nodesToExport = sourceNodes.length > 0 ? sourceNodes : createOutlineFromScheme(schemeData);
+    const nextOpeningChapterPlan = ensureOpeningChapterPlan({
+      outlineNodes: nodesToExport,
+      openingChapterPlan: openingChapterPlanOverride ?? openingChapterPlan ?? project?.openingChapterPlan,
+      updatedAt: project?.updatedAt || now
+    }, now);
+    const nextOpeningChapterDrafts = ensureOpeningChapterDrafts({
+      openingChapterPlan: nextOpeningChapterPlan,
+      openingChapterDrafts: openingChapterDraftsOverride ?? openingChapterDrafts ?? project?.openingChapterDrafts,
+      updatedAt: project?.updatedAt || now
+    }, now);
     const worldState = ensureWorldState({
       outlineNodes: nodesToExport,
-      worldState: project?.worldState,
+      openingChapterPlan: nextOpeningChapterPlan,
+      worldState: worldStateOverride,
       updatedAt: project?.updatedAt || now
     }, now);
 
@@ -293,12 +461,444 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
       selectedScheme: schemeData,
       outlineNodes: nodesToExport,
       worldState,
-      theoryChecks: runTheoryChecks({ outlineNodes: nodesToExport }),
+      openingChapterPlan: nextOpeningChapterPlan,
+      openingChapterDrafts: nextOpeningChapterDrafts,
+      theoryChecks: runTheoryChecks({ outlineNodes: nodesToExport, openingChapterPlan: nextOpeningChapterPlan }),
       theorySuggestionStates,
       similarSettingHints: selectedScheme.similarSettingHints || [],
       createdAt: project?.createdAt || draftCreatedAtRef.current,
       updatedAt: now
     };
+  };
+
+  const persistOpeningChapterDrafts = async (
+    nextDrafts: OpeningChapterDraftSet,
+    worldStateOverride: Project["worldState"],
+    options: {
+      reloadSnapshots?: boolean;
+    } = {}
+  ) => {
+    const projectData = buildCurrentProjectData(
+      project?.id,
+      outlineNodes,
+      openingChapterPlan,
+      nextDrafts,
+      worldStateOverride
+    );
+    await localStore.saveProject(projectData);
+    setOpeningChapterDrafts(projectData.openingChapterDrafts ?? nextDrafts);
+    setProjectWorldState(ensureWorldState(projectData, projectData.updatedAt));
+    if (options.reloadSnapshots) {
+      await loadSnapshots(projectData.id);
+    }
+    onProjectSaved?.(projectData);
+    return projectData;
+  };
+
+  const handleOpeningChapterDraftsChange = (nextDrafts: OpeningChapterDraftSet) => {
+    const nextWorldState = reconcileOpeningDraftWorldState(openingChapterDrafts, nextDrafts);
+    setOpeningChapterDrafts(nextDrafts);
+    setProjectWorldState(nextWorldState);
+    setOpeningDraftSaveState("pending");
+    setOpeningDraftConfirmationFeedback(null);
+    setOpeningDraftGapFillFeedback(null);
+
+    if (openingDraftSaveTimerRef.current) clearTimeout(openingDraftSaveTimerRef.current);
+    openingDraftSaveTimerRef.current = setTimeout(async () => {
+      setOpeningDraftSaveState("saving");
+      try {
+        await persistOpeningChapterDrafts(nextDrafts, nextWorldState);
+        setOpeningDraftSaveState("saved");
+      } catch (error) {
+        console.error("Opening chapter draft auto-save failed:", error);
+        setOpeningDraftSaveState("error");
+      }
+    }, 900);
+  };
+
+  const handleGenerateOpeningChapterDraft = async (chapterNumber: OpeningChapterDraftNumber) => {
+    if (
+      !openingChapterPlan ||
+      !openingChapterDrafts ||
+      openingDraftGeneratingChapter ||
+      openingDraftConfirmingChapter ||
+      openingDraftGapFilling
+    ) return;
+    if (
+      shouldConfirmAiOperation() &&
+      !window.confirm("正文试写会调用真实 AI，并按当前章计划、相关事实和上一章承接来生成单章草稿。继续吗？")
+    ) {
+      return;
+    }
+
+    const currentDraft = openingChapterDrafts.chapters.find((draft) => draft.chapterNumber === chapterNumber);
+    const currentPlanChapter = openingChapterPlan.chapters.find((chapter) => chapter.chapterNumber === chapterNumber);
+    if (!currentDraft || !currentPlanChapter) return;
+
+    const hasExistingContent = currentDraft.content.trim().length > 0;
+    if (
+      hasExistingContent &&
+      !window.confirm("当前章已有正文。继续后会先保存一个快照，再用新生成结果替换当前草稿。继续吗？")
+    ) {
+      return;
+    }
+
+    if (openingDraftSaveTimerRef.current) {
+      clearTimeout(openingDraftSaveTimerRef.current);
+      openingDraftSaveTimerRef.current = null;
+    }
+
+    const sourceProjectData = buildCurrentProjectData(project?.id, outlineNodes, openingChapterPlan, openingChapterDrafts);
+    const generationInput = buildOpeningChapterDraftGenerationInput(sourceProjectData, chapterNumber);
+    const pendingSummary = buildOpeningChapterDraftContextSummary(generationInput);
+
+    setOpeningDraftGeneratingChapter(chapterNumber);
+    setOpeningDraftGapFillFeedback(null);
+    setOpeningDraftGenerationFeedback({
+      chapterNumber,
+      tone: "pending",
+      message: "AI 正在按当前章计划、关联事实和承接信息试写正文。",
+      contextSummary: pendingSummary
+    });
+
+    try {
+      if (hasExistingContent) {
+        await localStore.saveSnapshot({
+          id: `snapshot-${Date.now()}`,
+          projectId: sourceProjectData.id,
+          createdAt: new Date().toISOString(),
+          reason: "aiGenerate",
+          data: sourceProjectData
+        });
+      }
+
+      const result = await llmProvider.generateOpeningChapterDraft(generationInput);
+      const now = new Date().toISOString();
+      const nextDraftsBeforeWorldState: OpeningChapterDraftSet = {
+        ...openingChapterDrafts,
+        chapters: openingChapterDrafts.chapters.map((draft) =>
+          draft.chapterNumber === chapterNumber
+            ? {
+                ...draft,
+                title: result.title || draft.title,
+                content: result.content,
+                status: "draft",
+                origin: "llm",
+                sourcePlanSignature: getOpeningChapterPlanSignature(currentPlanChapter),
+                usedFactIds: result.contextSummary.factIds,
+                stateChangeStatus: "pending",
+                updatedAt: now
+              }
+            : draft
+        ),
+        updatedAt: now
+      };
+      const nextWorldState = reconcileOpeningDraftWorldState(openingChapterDrafts, nextDraftsBeforeWorldState);
+
+      setOpeningChapterDrafts(nextDraftsBeforeWorldState);
+      setProjectWorldState(nextWorldState);
+      setOpeningDraftSaveState("saving");
+      const projectData = await persistOpeningChapterDrafts(nextDraftsBeforeWorldState, nextWorldState, {
+        reloadSnapshots: true
+      });
+      setOpeningDraftSaveState("saved");
+      setSaveError(null);
+      setOpeningDraftGenerationFeedback({
+        chapterNumber,
+        tone: "success",
+        message: hasExistingContent ? "已生成并替换当前章，替换前快照已保留。" : "已生成当前章正文并保存。",
+        meta: result.llmMeta,
+        contextSummary: result.contextSummary
+      });
+    } catch (error) {
+      console.error("Generate opening chapter draft failed:", error);
+      setOpeningDraftSaveState(hasExistingContent ? "saved" : "idle");
+      setOpeningDraftGenerationFeedback({
+        chapterNumber,
+        tone: "error",
+        message: error instanceof Error ? error.message : getAiRecoveryCopy(error, "正文试写").message,
+        contextSummary: pendingSummary
+      });
+    } finally {
+      setOpeningDraftGeneratingChapter(null);
+    }
+  };
+
+  const handleFillOpeningChapterGap = async (request: OpeningGapFillRequest) => {
+    if (
+      !openingChapterPlan ||
+      !openingChapterDrafts ||
+      openingDraftGapFilling ||
+      openingDraftGeneratingChapter ||
+      openingDraftConfirmingChapter
+    ) return;
+    const currentDraft = openingChapterDrafts.chapters.find(
+      (draft) => draft.chapterNumber === request.chapterNumber
+    );
+    if (!currentDraft?.content.trim()) return;
+    if (isOpeningChapterDraftStale(currentDraft, openingChapterPlan)) {
+      setOpeningDraftGapFillFeedback({
+        ...request,
+        tone: "error",
+        message: "当前正文仍基于旧版计划，请先核对当前计划，再请求局部补写。",
+        sourceDraftUpdatedAt: currentDraft.updatedAt,
+        sourcePlanSignature: currentDraft.sourcePlanSignature ?? ""
+      });
+      return;
+    }
+
+    if (request.selectionEnd - request.selectionStart > openingChapterGapSelectionLimit) {
+      setOpeningDraftGapFillFeedback({
+        ...request,
+        gapLabel: request.gapLabel,
+        tone: "error",
+        message: `单次最多替换 ${openingChapterGapSelectionLimit} 个字符，请缩小选区后重试。`,
+        sourceDraftUpdatedAt: currentDraft.updatedAt,
+        sourcePlanSignature: currentDraft.sourcePlanSignature ?? ""
+      });
+      return;
+    }
+
+    if (
+      shouldConfirmAiOperation() &&
+      !window.confirm(`“${request.gapLabel}”补写会调用一次真实 AI，并先返回候选文本，不会直接修改正文。继续吗？`)
+    ) {
+      return;
+    }
+
+    const sourceProjectData = buildCurrentProjectData(
+      project?.id,
+      outlineNodes,
+      openingChapterPlan,
+      openingChapterDrafts
+    );
+    const sourceDraftUpdatedAt = currentDraft.updatedAt;
+    const sourcePlanSignature = getOpeningChapterPlanSignature(
+      openingChapterPlan.chapters.find((chapter) => chapter.chapterNumber === request.chapterNumber)
+    );
+    const gapInput = buildOpeningChapterGapFillInput(
+      sourceProjectData,
+      request.chapterNumber,
+      {
+        id: request.gapId,
+        label: request.gapLabel,
+        message: request.gapMessage
+      },
+      request.selectionStart,
+      request.selectionEnd
+    );
+
+    setOpeningDraftGapFilling({ chapterNumber: request.chapterNumber, gapId: request.gapId });
+    setOpeningDraftGenerationFeedback(null);
+    setOpeningDraftGapFillFeedback({
+      ...request,
+      tone: "pending",
+      message: "AI 正在按当前检查项和光标附近正文生成局部候选。",
+      sourceDraftUpdatedAt,
+      sourcePlanSignature
+    });
+
+    try {
+      const result = await llmProvider.fillOpeningChapterGap(gapInput);
+      setOpeningDraftGapFillFeedback({
+        ...request,
+        tone: "success",
+        message: "候选已生成。可先修改候选，再决定是否采纳到正文。",
+        content: result.content,
+        sourceDraftUpdatedAt,
+        sourcePlanSignature,
+        usedFactIds: result.contextSummary.factIds,
+        meta: result.llmMeta
+      });
+    } catch (error) {
+      setOpeningDraftGapFillFeedback({
+        ...request,
+        tone: "error",
+        message: error instanceof Error ? error.message : getAiRecoveryCopy(error, "正文缺口补写").message,
+        sourceDraftUpdatedAt,
+        sourcePlanSignature
+      });
+    } finally {
+      setOpeningDraftGapFilling(null);
+    }
+  };
+
+  const handleApplyOpeningChapterGapFill = async (
+    input: OpeningGapFillFeedback & { content: string }
+  ) => {
+    if (!openingChapterPlan || !openingChapterDrafts || !input.content.trim() || openingDraftGapFilling) return;
+    const currentDraft = openingChapterDrafts.chapters.find(
+      (draft) => draft.chapterNumber === input.chapterNumber
+    );
+    const currentPlanChapter = openingChapterPlan.chapters.find(
+      (chapter) => chapter.chapterNumber === input.chapterNumber
+    );
+    if (!currentDraft || !currentPlanChapter) return;
+
+    if (currentDraft.updatedAt !== input.sourceDraftUpdatedAt) {
+      setOpeningDraftGapFillFeedback({
+        ...input,
+        tone: "error",
+        content: undefined,
+        message: "请求后正文已经发生变化。旧候选未应用，请在新位置重新补写。"
+      });
+      return;
+    }
+
+    if (getOpeningChapterPlanSignature(currentPlanChapter) !== input.sourcePlanSignature) {
+      setOpeningDraftGapFillFeedback({
+        ...input,
+        tone: "error",
+        content: undefined,
+        message: "请求后当前章计划已经变化。旧候选未应用，请核对计划后重新补写。"
+      });
+      return;
+    }
+
+    if (openingDraftSaveTimerRef.current) {
+      clearTimeout(openingDraftSaveTimerRef.current);
+      openingDraftSaveTimerRef.current = null;
+    }
+
+    const start = Math.max(0, Math.min(input.selectionStart, currentDraft.content.length));
+    const end = Math.max(start, Math.min(input.selectionEnd, currentDraft.content.length));
+    const inserted = applyOpeningChapterGapCandidate(
+      currentDraft.content,
+      input.content,
+      start,
+      end
+    );
+    const now = new Date().toISOString();
+    const nextDraftsBeforeWorldState: OpeningChapterDraftSet = {
+      ...openingChapterDrafts,
+      chapters: openingChapterDrafts.chapters.map((draft) =>
+        draft.chapterNumber === input.chapterNumber
+          ? {
+              ...draft,
+              content: inserted,
+              status: "draft",
+              origin: "hybrid",
+              sourcePlanSignature: draft.sourcePlanSignature,
+              usedFactIds: Array.from(new Set([...draft.usedFactIds, ...(input.usedFactIds ?? [])])),
+              stateChangeStatus: "pending",
+              updatedAt: now
+            }
+          : draft
+      ),
+      updatedAt: now
+    };
+    const nextWorldState = reconcileOpeningDraftWorldState(openingChapterDrafts, nextDraftsBeforeWorldState);
+    const sourceProjectData = buildCurrentProjectData(
+      project?.id,
+      outlineNodes,
+      openingChapterPlan,
+      openingChapterDrafts
+    );
+
+    try {
+      setOpeningDraftGapFilling({ chapterNumber: input.chapterNumber, gapId: input.gapId });
+      setOpeningDraftSaveState("saving");
+      await localStore.saveSnapshot({
+        id: `snapshot-${Date.now()}`,
+        projectId: sourceProjectData.id,
+        createdAt: now,
+        reason: "aiGenerate",
+        data: sourceProjectData
+      });
+      await persistOpeningChapterDrafts(nextDraftsBeforeWorldState, nextWorldState, {
+        reloadSnapshots: true
+      });
+      setOpeningDraftSaveState("saved");
+      setOpeningDraftConfirmationFeedback(null);
+      setOpeningDraftGapFillFeedback({
+        ...input,
+        tone: "applied",
+        content: undefined,
+        message: "补写已采纳并保存，修改前快照已保留。"
+      });
+    } catch (error) {
+      setOpeningDraftSaveState("error");
+      setOpeningDraftGapFillFeedback({
+        ...input,
+        tone: "error",
+        content: undefined,
+        message: error instanceof Error ? error.message : "补写采纳后保存失败，请重试。"
+      });
+    } finally {
+      setOpeningDraftGapFilling(null);
+    }
+  };
+
+  const handleConfirmOpeningChapterDraft = async (chapterNumber: OpeningChapterDraftNumber) => {
+    if (
+      !openingChapterPlan ||
+      !openingChapterDrafts ||
+      openingDraftConfirmingChapter ||
+      openingDraftGeneratingChapter ||
+      openingDraftGapFilling
+    ) return;
+
+    const currentDraft = openingChapterDrafts.chapters.find((draft) => draft.chapterNumber === chapterNumber);
+    const currentPlanChapter = openingChapterPlan.chapters.find((chapter) => chapter.chapterNumber === chapterNumber);
+    if (!currentDraft || !currentPlanChapter) return;
+    if (!currentDraft.content.trim()) return;
+    if (currentDraft.status === "confirmed" && currentDraft.stateChangeStatus === "confirmed") return;
+    if (!window.confirm("确认当前章后，会把本章计划里的状态变化写入世界状态，并作为后续正文生成可引用的已确认事件。继续吗？")) {
+      return;
+    }
+
+    setOpeningDraftGapFillFeedback(null);
+
+    if (openingDraftSaveTimerRef.current) {
+      clearTimeout(openingDraftSaveTimerRef.current);
+      openingDraftSaveTimerRef.current = null;
+    }
+
+    const now = new Date().toISOString();
+    const nextDrafts: OpeningChapterDraftSet = {
+      ...openingChapterDrafts,
+      chapters: openingChapterDrafts.chapters.map((draft) =>
+        draft.chapterNumber === chapterNumber
+          ? {
+              ...draft,
+              status: "confirmed",
+              sourcePlanSignature: getOpeningChapterPlanSignature(currentPlanChapter),
+              usedFactIds: currentPlanChapter.requiredFactIds,
+              stateChangeStatus: "confirmed",
+              updatedAt: now
+            }
+          : draft
+      ),
+      updatedAt: now
+    };
+    const nextWorldState = reconcileOpeningDraftWorldState(openingChapterDrafts, nextDrafts);
+
+    setOpeningDraftConfirmingChapter(chapterNumber);
+    setOpeningDraftConfirmationFeedback(null);
+    setOpeningChapterDrafts(nextDrafts);
+    setProjectWorldState(nextWorldState);
+    setOpeningDraftSaveState("saving");
+
+    try {
+      await persistOpeningChapterDrafts(nextDrafts, nextWorldState);
+      setOpeningDraftSaveState("saved");
+      setSaveError(null);
+      setOpeningDraftConfirmationFeedback({
+        chapterNumber,
+        tone: "success",
+        message: "当前章已确认，对应状态变化已写入世界状态。"
+      });
+    } catch (error) {
+      console.error("Confirm opening chapter draft failed:", error);
+      setOpeningDraftSaveState("error");
+      setOpeningDraftConfirmationFeedback({
+        chapterNumber,
+        tone: "error",
+        message: "确认失败，当前正文仍保留在页面上。请重试保存。"
+      });
+    } finally {
+      setOpeningDraftConfirmingChapter(null);
+    }
   };
 
   const handleSave = async () => {
@@ -326,7 +926,10 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
 
       await loadSnapshots(projectData.id);
       setSelectedScheme(projectData.selectedScheme);
-      setOutlineNodes(ensureSerialArcNodes(projectData.outlineNodes));
+      setOutlineNodes(normalizeOutlineNodes(projectData.outlineNodes));
+      setOpeningChapterPlan(projectData.openingChapterPlan ?? null);
+      setOpeningChapterDrafts(projectData.openingChapterDrafts ?? null);
+      setProjectWorldState(ensureWorldState(projectData, projectData.updatedAt));
       if (!selectedNodeId && projectData.outlineNodes[0]) {
         setSelectedNodeId(projectData.outlineNodes[0].id);
       }
@@ -385,7 +988,10 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
 
       await loadSnapshots(projectData.id);
       setSelectedScheme(projectData.selectedScheme);
-      setOutlineNodes(ensureSerialArcNodes(projectData.outlineNodes));
+      setOutlineNodes(normalizeOutlineNodes(projectData.outlineNodes));
+      setOpeningChapterPlan(projectData.openingChapterPlan ?? null);
+      setOpeningChapterDrafts(projectData.openingChapterDrafts ?? null);
+      setProjectWorldState(ensureWorldState(projectData, projectData.updatedAt));
       onProjectSaved?.(projectData);
       setSnapshotStatus("快照已保存");
     } catch (err) {
@@ -409,8 +1015,25 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
     setCoreConcept(projectData.selectedScheme.coreConcept || "");
     setPowerSystem(projectData.selectedScheme.powerSystem || "");
     setConflictType(projectData.selectedScheme.conflictType || "");
-    const restoredOutlineNodes = ensureSerialArcNodes(projectData.outlineNodes || []);
+    const restoredOutlineNodes = normalizeOutlineNodes(projectData.outlineNodes || []);
     setOutlineNodes(restoredOutlineNodes);
+    const restoredOpeningChapterPlan = ensureOpeningChapterPlan({
+      outlineNodes: restoredOutlineNodes,
+      openingChapterPlan: projectData.openingChapterPlan,
+      updatedAt: projectData.updatedAt
+    });
+    setOpeningChapterPlan(restoredOpeningChapterPlan);
+    setOpeningChapterDrafts(ensureOpeningChapterDrafts({
+      openingChapterPlan: restoredOpeningChapterPlan,
+      openingChapterDrafts: projectData.openingChapterDrafts,
+      updatedAt: projectData.updatedAt
+    }));
+    setProjectWorldState(ensureWorldState({
+      outlineNodes: restoredOutlineNodes,
+      openingChapterPlan: restoredOpeningChapterPlan,
+      worldState: projectData.worldState,
+      updatedAt: projectData.updatedAt
+    }, projectData.updatedAt));
     setSelectedNodeId(restoredOutlineNodes[0]?.id || null);
     setTheorySuggestionStates(projectData.theorySuggestionStates || {});
     setSaveError(null);
@@ -487,6 +1110,10 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
       const projectData = buildCurrentProjectData(project?.id, nextOutlineNodes);
       try {
         await localStore.saveProject(projectData);
+        setOutlineNodes(projectData.outlineNodes);
+        setOpeningChapterPlan(projectData.openingChapterPlan ?? null);
+        setOpeningChapterDrafts(projectData.openingChapterDrafts ?? null);
+        setProjectWorldState(ensureWorldState(projectData, projectData.updatedAt));
         onProjectSaved?.(projectData);
       } catch (saveError) {
         console.error("Enhance outline node auto-save failed:", saveError);
@@ -513,6 +1140,83 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
     } finally {
       setEnhancingNodeId(null);
       setTimeout(() => setEnhanceStatus(null), 3500);
+    }
+  };
+
+  const handleOpeningChapterPlanChange = (nextPlan: OpeningChapterPlan) => {
+    setOpeningChapterPlan(nextPlan);
+    setOpeningChapterDrafts(ensureOpeningChapterDrafts({
+      openingChapterPlan: nextPlan,
+      openingChapterDrafts: openingChapterDrafts ?? undefined,
+      updatedAt: new Date().toISOString()
+    }));
+    setProjectWorldState(ensureWorldState({
+      outlineNodes,
+      openingChapterPlan: nextPlan,
+      worldState: projectWorldState,
+      updatedAt: new Date().toISOString()
+    }));
+  };
+
+  const handleGenerateOpeningChapterPlan = async () => {
+    if (outlineNodes.length === 0 || generatingOpeningPlan) return;
+    if (
+      shouldConfirmAiOperation() &&
+      !window.confirm("生成前 30 章计划会调用真实 AI，可能等待较久并消耗 token。继续吗？")
+    ) {
+      return;
+    }
+
+    const normalizedPlan = ensureOpeningChapterPlan({
+      outlineNodes,
+      openingChapterPlan: openingChapterPlan ?? undefined,
+      updatedAt: project?.updatedAt || new Date().toISOString()
+    });
+
+    setGeneratingOpeningPlan(true);
+    setOpeningPlanStatus("AI 正在生成前 30 章计划...");
+    setOpeningPlanSuggestions([]);
+
+    try {
+      const result = await llmProvider.generateOpeningChapterPlan({
+        outlineNodes,
+        openingChapterPlan: normalizedPlan
+      });
+      const nextPlan = ensureOpeningChapterPlan({
+        outlineNodes,
+        openingChapterPlan: result.openingChapterPlan,
+        updatedAt: new Date().toISOString()
+      });
+      setOpeningChapterPlan(nextPlan);
+      setOpeningPlanSuggestions(result.suggestions ?? []);
+
+      const projectData = buildCurrentProjectData(project?.id, outlineNodes, nextPlan);
+      try {
+        await localStore.saveProject(projectData);
+        setOpeningChapterPlan(projectData.openingChapterPlan ?? nextPlan);
+        setOpeningChapterDrafts(projectData.openingChapterDrafts ?? null);
+        setProjectWorldState(ensureWorldState(projectData, projectData.updatedAt));
+        onProjectSaved?.(projectData);
+      } catch (saveError) {
+        console.error("Opening chapter plan auto-save failed:", saveError);
+        setSaveError("前 30 章计划已写入当前页面，但自动保存失败。请点击保存项目重试。");
+        setOpeningPlanStatus("前 30 章计划已生成，但自动保存失败");
+        return;
+      }
+
+      setOpeningPlanStatus(
+        result.llmMeta?.source === "llm"
+          ? "前 30 章计划已生成并保存"
+          : result.llmMeta?.source === "cache"
+            ? "已使用缓存生成前 30 章计划并保存"
+            : "已使用本地兜底生成前 30 章计划并保存"
+      );
+    } catch (error) {
+      console.error("Generate opening chapter plan failed:", error);
+      setOpeningPlanStatus(getAiRecoveryCopy(error, "前 30 章生成").message);
+    } finally {
+      setGeneratingOpeningPlan(false);
+      setTimeout(() => setOpeningPlanStatus(null), 4200);
     }
   };
 
@@ -989,16 +1693,48 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
         )}
 
         {outlineNodes.length > 0 ? (
-          <OutlineEditor
-            nodes={outlineNodes}
-            selectedNodeId={selectedNodeId}
-            onUpdateNode={handleUpdateNode}
-            onAddNode={handleAddNode}
-            onDeleteNode={handleDeleteNode}
-            onEnhanceNode={handleEnhanceNode}
-            enhancingNodeId={enhancingNodeId}
-            enhanceStatus={enhanceStatus}
-          />
+          <>
+            <OutlineEditor
+              nodes={outlineNodes}
+              selectedNodeId={selectedNodeId}
+              onUpdateNode={handleUpdateNode}
+              onAddNode={handleAddNode}
+              onDeleteNode={handleDeleteNode}
+              onEnhanceNode={handleEnhanceNode}
+              enhancingNodeId={enhancingNodeId}
+              enhanceStatus={enhanceStatus}
+            />
+            {openingChapterPlan && (
+              <OpeningChapterPlanEditor
+                plan={openingChapterPlan}
+                generating={generatingOpeningPlan}
+                status={openingPlanStatus}
+                suggestions={openingPlanSuggestions}
+                onChange={handleOpeningChapterPlanChange}
+                onGenerate={handleGenerateOpeningChapterPlan}
+              />
+            )}
+            {openingChapterPlan && openingChapterDrafts && (
+              <OpeningChapterDraftEditor
+                drafts={openingChapterDrafts}
+                plan={openingChapterPlan}
+                knownFactIds={openingDraftKnownFactIds}
+                saveState={openingDraftSaveState}
+                generatingChapterNumber={openingDraftGeneratingChapter}
+                confirmingChapterNumber={openingDraftConfirmingChapter}
+                generationFeedback={openingDraftGenerationFeedback}
+                confirmationFeedback={openingDraftConfirmationFeedback}
+                gapFilling={openingDraftGapFilling}
+                gapFillFeedback={openingDraftGapFillFeedback}
+                onChange={handleOpeningChapterDraftsChange}
+                onGenerate={handleGenerateOpeningChapterDraft}
+                onConfirm={handleConfirmOpeningChapterDraft}
+                onFillGap={handleFillOpeningChapterGap}
+                onApplyGapFill={handleApplyOpeningChapterGapFill}
+                onDismissGapFill={() => setOpeningDraftGapFillFeedback(null)}
+              />
+            )}
+          </>
         ) : (
           <article className="editor-surface editor-empty-state">
             <div>
@@ -1022,6 +1758,7 @@ export function CreativeWorkbench({ project, onBack, onProjectSaved }: CreativeW
         <section className="theory-panel">
           <TheoryCheckerPanel
             nodes={outlineNodes}
+            openingChapterPlan={openingChapterPlan}
             selectedNodeId={selectedNodeId}
             theorySuggestionStates={theorySuggestionStates}
             onTheorySuggestionStatesChange={setTheorySuggestionStates}

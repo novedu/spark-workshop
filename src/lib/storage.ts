@@ -1,4 +1,6 @@
 import type { Project, ProjectSnapshot, UserPreference } from "@/types/product";
+import { ensureOpeningChapterDrafts } from "./opening-chapter-drafts";
+import { ensureOpeningChapterPlan } from "./opening-chapter-plan";
 import { ensureWorldState } from "./world-state";
 import { DB_NAME, DB_VERSION, stores } from "./storage/schema";
 
@@ -8,10 +10,23 @@ type StoreValueMap = {
   snapshots: ProjectSnapshot;
 };
 
-const normalizeProject = (project: Project): Project => ({
-  ...project,
-  worldState: ensureWorldState(project)
-});
+const normalizeProject = (project: Project): Project => {
+  const openingChapterPlan = ensureOpeningChapterPlan(project);
+  const openingChapterDrafts = ensureOpeningChapterDrafts({
+    ...project,
+    openingChapterPlan
+  });
+
+  return {
+    ...project,
+    openingChapterPlan,
+    openingChapterDrafts,
+    worldState: ensureWorldState({
+      ...project,
+      openingChapterPlan
+    })
+  };
+};
 
 const openDatabase = () =>
   new Promise<IDBDatabase>((resolve, reject) => {

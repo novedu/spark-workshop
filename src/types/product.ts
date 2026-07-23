@@ -94,6 +94,17 @@ export type TheoryMatchReason =
   | "keyword_hit"
   | "content_gap";
 
+export type TheoryEvidenceSource = "outline" | "field" | "chapter" | "gap";
+
+export type TheoryEvidence = {
+  id: string;
+  label: string;
+  value: string;
+  source: TheoryEvidenceSource;
+  nodeId?: string;
+  chapterNumber?: number;
+};
+
 export type TheoryDefinition = {
   id: TheoryId;
   category: TheoryCategory;
@@ -109,6 +120,7 @@ export type TheoryCheckResult = {
   location: string;
   message: string;
   rescueOptions: string[];
+  evidence?: TheoryEvidence[];
 };
 
 export type TheoryMatch = {
@@ -119,6 +131,7 @@ export type TheoryMatch = {
   reasons: TheoryMatchReason[];
   message: string;
   rescueOptions: string[];
+  evidence: TheoryEvidence[];
   score: number;
 };
 
@@ -175,8 +188,42 @@ export type ArcPhaseMetadata = Partial<Record<ArcPhaseMetadataKey, string>> & {
   chapterRange?: string;
 };
 
+export type ProtagonistMetadataKey =
+  | "identity"
+  | "coreDesire"
+  | "openingPredicament"
+  | "growthArc"
+  | "keyRelationships";
+
+export type ProtagonistMetadata = Partial<Record<ProtagonistMetadataKey, string>>;
+
+export type PressureSourceMetadataKey =
+  | "openingPressure"
+  | "openingPressureStage"
+  | "stageBoss"
+  | "stageBossStage"
+  | "systemPressure"
+  | "systemPressureStage"
+  | "finalOpponent"
+  | "finalOpponentStage"
+  | "pressureEscalation";
+
+export type PressureSourceMetadata = Partial<Record<PressureSourceMetadataKey, string>>;
+
+export type GoldenFingerMetadataKey =
+  | "abilityCore"
+  | "limitation"
+  | "cost"
+  | "upgradePath"
+  | "backlashRisk";
+
+export type GoldenFingerMetadata = Partial<Record<GoldenFingerMetadataKey, string>>;
+
 export type OutlineNodeMetadata = SerialArcMetadata &
   ArcPhaseMetadata &
+  ProtagonistMetadata &
+  PressureSourceMetadata &
+  GoldenFingerMetadata &
   Record<string, string | number | boolean | string[] | undefined>;
 
 export type OutlineNode = {
@@ -197,6 +244,8 @@ export type Project = {
   selectedScheme: WorldScheme;
   outlineNodes: OutlineNode[];
   worldState?: ProjectWorldState;
+  openingChapterPlan?: OpeningChapterPlan;
+  openingChapterDrafts?: OpeningChapterDraftSet;
   theoryChecks: TheoryCheckResult[];
   theorySuggestionStates?: Record<string, TheorySuggestionState>;
   similarSettingHints: SimilarSettingHint[];
@@ -339,6 +388,155 @@ export type ProjectWorldState = {
   foreshadowings: WorldStateForeshadowing[];
   events: WorldStateEvent[];
   updatedAt: IsoDateString;
+};
+
+export type OpeningChapterPlanVersion = 1;
+
+export type OpeningChapterPlanChapter = {
+  chapterNumber: number;
+  title: string;
+  arcPhaseId?: string;
+  readerQuestion: string;
+  sceneTask: string;
+  pressureOrPayoff: string;
+  chapterHook: string;
+  requiredFactIds: string[];
+  stateChange: string;
+  notes?: string;
+};
+
+export type OpeningChapterPlan = {
+  version: OpeningChapterPlanVersion;
+  chapterRange: "1-30";
+  sourceActId?: string;
+  chapters: OpeningChapterPlanChapter[];
+  updatedAt: IsoDateString;
+};
+
+export type OpeningChapterDraftSetVersion = 1;
+export type OpeningChapterDraftNumber = 1 | 2 | 3;
+export type OpeningChapterDraftStatus = "empty" | "draft" | "confirmed";
+export type OpeningChapterDraftOrigin = "author" | "llm" | "hybrid" | "local-scaffold";
+export type OpeningChapterDraftStateChangeStatus = "pending" | "confirmed" | "retracted";
+
+export type OpeningChapterDraft = {
+  chapterNumber: OpeningChapterDraftNumber;
+  title: string;
+  content: string;
+  status: OpeningChapterDraftStatus;
+  origin: OpeningChapterDraftOrigin;
+  sourcePlanSignature?: string;
+  usedFactIds: string[];
+  stateChangeStatus: OpeningChapterDraftStateChangeStatus;
+  createdAt: IsoDateString;
+  updatedAt: IsoDateString;
+};
+
+export type OpeningChapterDraftSet = {
+  version: OpeningChapterDraftSetVersion;
+  chapterRange: "1-3";
+  chapters: OpeningChapterDraft[];
+  updatedAt: IsoDateString;
+};
+
+export type OpeningChapterPlanGenerationInput = {
+  outlineNodes: OutlineNode[];
+  openingChapterPlan?: OpeningChapterPlan;
+};
+
+export type OpeningChapterPlanGenerationOutput = {
+  openingChapterPlan: OpeningChapterPlan;
+  suggestions: string[];
+  llmMeta?: LlmResultMeta;
+};
+
+export type OpeningChapterDraftContextFactKind = "entity" | "relation" | "foreshadowing" | "event";
+
+export type OpeningChapterDraftContextFact = {
+  id: string;
+  kind: OpeningChapterDraftContextFactKind;
+  label: string;
+  summary: string;
+  state?: string;
+  status?: string;
+};
+
+export type OpeningChapterDraftGenerationInput = {
+  projectTitle: string;
+  seedText: string;
+  chapterNumber: OpeningChapterDraftNumber;
+  selectedScheme: Pick<
+    WorldScheme,
+    "title" | "tagline" | "storyHook" | "premise" | "storyEngine" | "coreConcept" | "powerSystem" | "conflictType"
+  >;
+  currentChapter: OpeningChapterPlanChapter;
+  protagonistSummary?: {
+    identity?: string;
+    coreDesire?: string;
+    openingPredicament?: string;
+    growthArc?: string;
+    keyRelationships?: string;
+  };
+  pressureSourceSummary: Array<{
+    label: string;
+    value: string;
+    stageValue?: string;
+  }>;
+  goldenFingerSummary: Array<{
+    label: string;
+    value: string;
+  }>;
+  requiredFacts: OpeningChapterDraftContextFact[];
+  confirmedEvents: Array<{
+    id: string;
+    summary: string;
+    relatedEntityIds?: string[];
+    chapterRange?: string;
+  }>;
+  previousChapter?: {
+    chapterNumber: OpeningChapterDraftNumber;
+    title: string;
+    endingExcerpt: string;
+    continuityNote?: string;
+  };
+};
+
+export type OpeningChapterDraftGenerationContextSummary = {
+  factIds: string[];
+  confirmedEventIds: string[];
+  previousChapterNumber?: OpeningChapterDraftNumber;
+  fieldGroups: string[];
+};
+
+export type OpeningChapterDraftGenerationOutput = {
+  title: string;
+  content: string;
+  contextSummary: OpeningChapterDraftGenerationContextSummary;
+  llmMeta?: LlmResultMeta;
+};
+
+export type OpeningChapterGapId = "length" | "hook" | "pressure" | "state-change";
+
+export type OpeningChapterGapFillInput = OpeningChapterDraftGenerationInput & {
+  gap: {
+    id: OpeningChapterGapId;
+    label: string;
+    message: string;
+  };
+  draftContext: {
+    title: string;
+    beforeSelection: string;
+    selectedText: string;
+    afterSelection: string;
+  };
+};
+
+export type OpeningChapterGapFillOutput = {
+  content: string;
+  contextSummary: OpeningChapterDraftGenerationContextSummary & {
+    gapId: OpeningChapterGapId;
+  };
+  llmMeta?: LlmResultMeta;
 };
 
 export type EmotionBeat = {

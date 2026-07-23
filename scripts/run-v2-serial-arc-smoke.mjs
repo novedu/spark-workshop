@@ -35,6 +35,7 @@ const { createOutlineFromScheme, ensureSerialArcNodes } = require("../src/lib/ou
 const { serialArcFieldDefinitions } = require("../src/lib/serial-arc-fields.ts");
 const outlineEditorSource = fs.readFileSync(path.join(root, "src/components/OutlineEditor.tsx"), "utf8");
 const creativeWorkbenchSource = fs.readFileSync(path.join(root, "src/components/CreativeWorkbench.tsx"), "utf8");
+const theoryCheckerPanelSource = fs.readFileSync(path.join(root, "src/components/TheoryCheckerPanel.tsx"), "utf8");
 
 const sampleScheme = {
   id: "v2-serial-arc",
@@ -221,6 +222,14 @@ const checks = [
       outlineEditorSource.includes("node-serial-summary") &&
       outlineEditorSource.includes("aria-expanded={serialFieldsExpanded}"),
     detail: "Act serial arc fields remain collapsed with summary preview"
+  },
+  {
+    id: "ui-theory-default-display-limited",
+    passed:
+      theoryCheckerPanelSource.includes("DEFAULT_VISIBLE_THEORY_LIMIT = 5") &&
+      theoryCheckerPanelSource.includes("overflowSuggestions") &&
+      theoryCheckerPanelSource.includes("查看其余诊断"),
+    detail: "Theory panel defaults to a focused top-5 diagnosis list with overflow collapsed"
   },
   {
     id: "save-model-preserves-act-edits",

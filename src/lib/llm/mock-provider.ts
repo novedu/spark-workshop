@@ -1,6 +1,14 @@
 import { getSimilarSettingHints } from "@/lib/similar-settings";
 import { buildPrompt } from "@/lib/prompts";
-import type { UserPreference, WorldScheme } from "@/types/product";
+import { ensureOpeningChapterPlan } from "@/lib/opening-chapter-plan";
+import type {
+  OpeningChapterGapFillInput,
+  OpeningChapterGapFillOutput,
+  OpeningChapterDraftGenerationInput,
+  OpeningChapterDraftGenerationOutput,
+  UserPreference,
+  WorldScheme
+} from "@/types/product";
 import type { LlmProvider, TasteSample } from "./types";
 
 const tasteSamples: TasteSample[] = [
@@ -114,9 +122,9 @@ export const mockLlmProvider: LlmProvider = {
       protagonist:
         "姓名：沈砚。\n底层欲望：他不是单纯想变强，而是想证明自己不是可以被家族随手牺牲的废子。\n开场困境：开局被安排顶替嫡系去送死，所有人都默认他没有选择权。\n成长弧线：从只想活下去，到学会利用规则、重建自己的势力，最后主动选择承担更大的代价。",
       antagonist:
-        "阶段压力源：开局先用资源方、宗门管事、资本团队或家族长辈压住主角，不急着让终极反派完整登场。\n目标：他们要维护现有资源分配，让主角继续当可替代的牺牲品。\n压迫方式：卡身份、断资源、制造舆论或逼主角签下不公平约束。\n升级关系：主角每次破局都会暴露更高层利益链，后续再逐步显出真正反派。",
+        "开局压力源：资源方、宗门管事、资本团队或家族长辈先压住主角，不急着让终极反派完整登场。\n开局压力源出场：1-30章 / 开局卷。\n阶段 boss：负责执行封锁的人，目标是维护现有资源分配，让主角继续当可替代的牺牲品。\n阶段 boss出场：31-120章 / 新手升级卷。\n制度 / 势力压力：上层势力通过身份、资源、舆论和契约持续卡住主角。\n制度 / 势力压力出场：251-450章 / 势力扩张卷。\n终局对手：真正从资源垄断中获利的规则制定者，先作为影子存在。\n终局对手出场：651章后逐步显形。\n压力升级方式：主角每次破局都会暴露更高层利益链，压力源从具体执行人升级为势力和规则。",
       goldenFinger:
-        "来源：能力来自一次失败的献祭残留，主角不是被选中，而是侥幸没死。\n代价：每次使用都会透支一段记忆或人际关系中的信任。\n限制：只能在明确承受代价后发动，不能无成本连续使用。\n升级边界：能力越强，失去的东西越私人，逼主角在爽点和人性之间做选择。",
+        "能力核心：主角能读取记忆残片，并临时借用其中一项能力。\n限制条件：必须接触承载记忆的物品，同一段记忆只能读取一次。\n使用代价：每次使用都会透支一段记忆或人际关系中的信任。\n升级方式：夺回更高阶的记忆档案，能读取的能力层级越高。\n失控风险：读取过量会混淆自我记忆，甚至把敌人的欲望当成自己的。",
       conflict:
         "主角目标：摆脱被牺牲的命运，并夺回选择自己人生的权利。\n现实阻碍：旧势力掌握资源分配和身份规则，主角越反抗越会被贴上叛逆标签。\n失败代价：一旦失败，他会失去仅剩的庇护者，也会证明底层永远无法翻身。\n升级方式：每次胜利都会撬动一层旧秩序，引出更高层的敌人。",
       act:
@@ -135,6 +143,45 @@ export const mockLlmProvider: LlmProvider = {
         "当前节点可以补成三层：先写清目标，再写阻碍，最后写失败代价或回收方式。把设定落到一个具体剧情选择上，读者才会觉得它不是资料卡。",
       suggestions: ["保留已有设定方向", "补齐目标、阻碍和代价", "把补充内容改成你的角色名和专有名词"]
     };
+  },
+
+  generateOpeningChapterPlan: async ({ outlineNodes, openingChapterPlan }) => {
+    buildPrompt("opening.generate-chapter-plan", { additionalContext: { outlineNodes, openingChapterPlan } });
+    const plan = ensureOpeningChapterPlan({
+      outlineNodes,
+      openingChapterPlan,
+      updatedAt: new Date().toISOString()
+    });
+
+    return {
+      openingChapterPlan: {
+        ...plan,
+        chapters: plan.chapters.map((chapter) => ({
+          ...chapter,
+          title: chapter.title || `第${chapter.chapterNumber}章：黄金开局`,
+          readerQuestion: chapter.readerQuestion || "主角这一章能不能突破眼前压力？",
+          sceneTask: chapter.sceneTask || "把主角目标、压力源和能力边界落到一个具体可写场景。",
+          pressureOrPayoff: chapter.pressureOrPayoff || "先制造压迫，再兑现一个小反击或新线索。",
+          chapterHook: chapter.chapterHook || "章末留下下一章必须处理的新压力。",
+          stateChange: chapter.stateChange || "记录本章结束后的状态变化。"
+        }))
+      },
+      suggestions: [
+        "先检查前三章是否形成钩子、压迫和关门。",
+        "把章末钩子改成更贴合你的专有名词。",
+        "确认每次使用金手指都有边界或代价。"
+      ]
+    };
+  },
+
+  generateOpeningChapterDraft: async (_input: OpeningChapterDraftGenerationInput): Promise<OpeningChapterDraftGenerationOutput> => {
+    buildPrompt("opening.generate-chapter-draft");
+    throw new Error("Opening chapter draft generation does not support mock fallback.");
+  },
+
+  fillOpeningChapterGap: async (_input: OpeningChapterGapFillInput): Promise<OpeningChapterGapFillOutput> => {
+    buildPrompt("opening.fill-chapter-gap");
+    throw new Error("Opening chapter gap fill does not support mock fallback.");
   },
 
   explainTheoryCheck: async (result) => {

@@ -3,7 +3,13 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Plus, Trash2, FileText, WandSparkles } from "lucide-react";
 import { defaultEmotionGoalByKind, emotionGoalOptions, getNodeEmotionGoal } from "@/lib/emotion-goals";
+import { getGoldenFingerMetadata } from "@/lib/golden-finger-fields";
 import { createArcPhaseNode } from "@/lib/outline-template";
+import { getPressureSourceMetadata } from "@/lib/pressure-source-fields";
+import { getProtagonistMetadata } from "@/lib/protagonist-fields";
+import { GoldenFingerFields } from "@/components/GoldenFingerFields";
+import { PressureSourceFields } from "@/components/PressureSourceFields";
+import { ProtagonistFields } from "@/components/ProtagonistFields";
 import {
   getOutlineNodeStageHint,
   outlineKindDisplayLabels
@@ -12,7 +18,15 @@ import {
   serialArcFieldDefinitions,
   type SerialArcFieldDefinition
 } from "@/lib/serial-arc-fields";
-import type { EmotionType, OutlineNode, OutlineNodeKind, ReaderEmotionGoal } from "@/types/product";
+import type {
+  EmotionType,
+  GoldenFingerMetadataKey,
+  OutlineNode,
+  OutlineNodeKind,
+  PressureSourceMetadataKey,
+  ProtagonistMetadataKey,
+  ReaderEmotionGoal
+} from "@/types/product";
 
 interface OutlineEditorProps {
   nodes: OutlineNode[];
@@ -71,6 +85,39 @@ export function OutlineEditor({
       emotionGoal: {
         ...getNodeEmotionGoal(selectedNode),
         ...updates
+      }
+    });
+  };
+
+  const handleProtagonistFieldChange = (key: ProtagonistMetadataKey, value: string) => {
+    if (!selectedNodeId || !selectedNode || selectedNode.kind !== "protagonist") return;
+    onUpdateNode(selectedNodeId, {
+      metadata: {
+        ...(selectedNode.metadata ?? {}),
+        ...getProtagonistMetadata(selectedNode),
+        [key]: value
+      }
+    });
+  };
+
+  const handlePressureSourceFieldChange = (key: PressureSourceMetadataKey, value: string) => {
+    if (!selectedNodeId || !selectedNode || selectedNode.kind !== "antagonist") return;
+    onUpdateNode(selectedNodeId, {
+      metadata: {
+        ...(selectedNode.metadata ?? {}),
+        ...getPressureSourceMetadata(selectedNode),
+        [key]: value
+      }
+    });
+  };
+
+  const handleGoldenFingerFieldChange = (key: GoldenFingerMetadataKey, value: string) => {
+    if (!selectedNodeId || !selectedNode || selectedNode.kind !== "goldenFinger") return;
+    onUpdateNode(selectedNodeId, {
+      metadata: {
+        ...(selectedNode.metadata ?? {}),
+        ...getGoldenFingerMetadata(selectedNode),
+        [key]: value
       }
     });
   };
@@ -134,11 +181,12 @@ export function OutlineEditor({
               <button
                 type="button"
                 className="node-ai-button"
+                title="根据当前节点和兄弟节点，补写缺失的设定缺口"
                 onClick={() => onEnhanceNode(selectedNode.id)}
                 disabled={enhancingNodeId === selectedNode.id}
               >
                 <WandSparkles size={14} className={enhancingNodeId === selectedNode.id ? "spinning" : ""} aria-hidden />
-                {enhancingNodeId === selectedNode.id ? "补写中" : "AI补全"}
+                {enhancingNodeId === selectedNode.id ? "补写中" : "AI补写缺口"}
               </button>
               <div className="add-node-menu">
                 <button
@@ -214,6 +262,15 @@ export function OutlineEditor({
                 />
               </label>
             </div>
+            {selectedNode.kind === "protagonist" && (
+              <ProtagonistFields node={selectedNode} onChange={handleProtagonistFieldChange} />
+            )}
+            {selectedNode.kind === "antagonist" && (
+              <PressureSourceFields node={selectedNode} onChange={handlePressureSourceFieldChange} />
+            )}
+            {selectedNode.kind === "goldenFinger" && (
+              <GoldenFingerFields node={selectedNode} onChange={handleGoldenFingerFieldChange} />
+            )}
             {selectedNode.kind === "act" && (
               <section className="node-serial-arc" aria-label="卷纲字段">
                 <button

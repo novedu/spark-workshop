@@ -31,14 +31,21 @@ export const classifyAiError = (error: unknown): AiRecoveryKind => {
   return "unknown";
 };
 
-export const getAiRecoveryCopy = (error: unknown, operationLabel: string): AiRecoveryCopy => {
+export const getAiRecoveryCopy = (
+  error: unknown,
+  operationLabel: string,
+  options: { fallbackAvailable?: boolean } = {}
+): AiRecoveryCopy => {
   const kind = classifyAiError(error);
+  const fallbackAvailable = options.fallbackAvailable !== false;
 
   switch (kind) {
     case "timeout":
       return {
         kind,
-        message: `${operationLabel}超时了。当前内容没有丢，可以先用本地兜底继续，稍后再重试真实 AI。`,
+        message: fallbackAvailable
+          ? `${operationLabel}超时了。当前内容没有丢，可以先用本地兜底继续，稍后再重试真实 AI。`
+          : `${operationLabel}超时了。当前内容没有丢，可以保留现有内容，稍后再重试真实 AI。`,
         actionLabel: "稍后重试"
       };
     case "config":
@@ -56,7 +63,9 @@ export const getAiRecoveryCopy = (error: unknown, operationLabel: string): AiRec
     case "rate-limit":
       return {
         kind,
-        message: `${operationLabel}被限流了。建议稍后重试，或临时开启省 token 模式继续本地流程。`,
+        message: fallbackAvailable
+          ? `${operationLabel}被限流了。建议稍后重试，或临时开启省 token 模式继续本地流程。`
+          : `${operationLabel}被限流了。当前内容没有丢，建议稍后重试真实 AI。`,
         actionLabel: "稍后重试"
       };
     case "network":
@@ -68,7 +77,9 @@ export const getAiRecoveryCopy = (error: unknown, operationLabel: string): AiRec
     default:
       return {
         kind,
-        message: `${operationLabel}暂时失败。当前内容没有丢，可以重试或先使用本地兜底继续。`,
+        message: fallbackAvailable
+          ? `${operationLabel}暂时失败。当前内容没有丢，可以重试或先使用本地兜底继续。`
+          : `${operationLabel}暂时失败。当前内容没有丢，可以保留现有内容后重试。`,
         actionLabel: "重试"
       };
   }

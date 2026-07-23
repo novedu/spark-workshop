@@ -1,8 +1,10 @@
 import type {
+  OpeningChapterPlan,
   OutlineNode,
   Project,
   TheoryCheckResult,
   TheoryDefinition,
+  TheoryEvidence,
   TheoryId,
   TheoryMatch,
   TheoryMatchLevel,
@@ -13,6 +15,9 @@ import type {
 import { v1Theories, getTheoryById } from "./theory-library";
 import { llmProvider } from "./llm";
 import { getOutlineNodeDisplayTitle } from "./outline-ux";
+import { getGoldenFingerMetadata } from "./golden-finger-fields";
+import { getPressureSourceMetadata } from "./pressure-source-fields";
+import { getProtagonistMetadata } from "./protagonist-fields";
 
 export type TheoryCheckWithExplanation = TheoryCheckResult & {
   theory: TheoryDefinition;
@@ -24,6 +29,7 @@ export type TheoryCheckWithExplanation = TheoryCheckResult & {
 
 type TheoryCheckContext = {
   outlineNodes: OutlineNode[];
+  openingChapterPlan?: OpeningChapterPlan;
 };
 
 const nodeTheoryMap: Record<string, V1TheoryId[]> = {
@@ -119,6 +125,17 @@ const severityScore: Record<TheorySeverity, number> = {
   pass: 5
 };
 
+const theoryFocusPriority: Record<V1TheoryId, number> = {
+  T03: 80,
+  T07: 70,
+  T02: 60,
+  T11: 55,
+  T13: 50,
+  T04: 45,
+  T12: 42,
+  T01: 35
+};
+
 export const getRelevantTheoryIdsForNode = (node: OutlineNode | undefined): V1TheoryId[] => {
   if (!node) return [];
   return nodeTheoryMap[node.id] ?? fallbackTheoryMap[node.kind];
@@ -146,9 +163,142 @@ const addReason = (reasons: TheoryMatchReason[], reason: TheoryMatchReason) => {
   }
 };
 
+const textValue = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
+const compactValue = (value: string, maxLength = 96) => {
+  const compacted = value.replace(/\s+/g, " ").trim();
+  return compacted.length > maxLength ? `${compacted.slice(0, maxLength)}...` : compacted;
+};
+
+const evidenceId = (parts: Array<string | number | undefined>) =>
+  parts.filter((part) => part !== undefined && `${part}`.trim().length > 0).join("-");
+
+const buildFieldEvidence = (
+  node: OutlineNode | undefined,
+  label: string,
+  value: unknown,
+  idSuffix: string
+): TheoryEvidence | null => {
+  const cleaned = textValue(value);
+  if (!node || !cleaned) return null;
+
+  return {
+    id: evidenceId(["field", node.id, idSuffix]),
+    label,
+    value: compactValue(cleaned),
+    source: "field",
+    nodeId: node.id
+  };
+};
+
+const buildOutlineEvidence = (
+  node: OutlineNode | undefined,
+  label: string,
+  value: unknown,
+  idSuffix = "content"
+): TheoryEvidence | null => {
+  const cleaned = textValue(value);
+  if (!node || !cleaned) return null;
+
+  return {
+    id: evidenceId(["outline", node.id, idSuffix]),
+    label,
+    value: compactValue(cleaned),
+    source: "outline",
+    nodeId: node.id
+  };
+};
+
+const buildChapterEvidence = (
+  chapterNumber: number,
+  label: string,
+  value: unknown,
+  idSuffix: string
+): TheoryEvidence | null => {
+  const cleaned = textValue(value);
+  if (!cleaned) return null;
+
+  return {
+    id: evidenceId(["chapter", chapterNumber, idSuffix]),
+    label,
+    value: compactValue(cleaned),
+    source: "chapter",
+    chapterNumber
+  };
+};
+
+const buildGapEvidence = (
+  label: string,
+  value: string,
+  idSuffix: string,
+  nodeId?: string
+): TheoryEvidence => ({
+  id: evidenceId(["gap", nodeId, idSuffix]),
+  label,
+  value,
+  source: "gap",
+  ...(nodeId ? { nodeId } : {})
+});
+
+const collectEvidence = (...items: Array<TheoryEvidence | null | undefined>) => {
+  const seen = new Set<string>();
+  return items.filter((item): item is TheoryEvidence => {
+    if (!item || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+};
+
+export const formatTheoryEvidence = (evidence: TheoryEvidence) => {
+  const prefix =
+    evidence.source === "chapter" && evidence.chapterNumber
+      ? `第${evidence.chapterNumber}章`
+      : evidence.source === "gap"
+        ? "缺口"
+        : evidence.source === "field"
+          ? "字段"
+          : "大纲";
+
+  return `${prefix} · ${evidence.label}：${evidence.value}`;
+};
+
+const formatEvidenceForLlm = (evidence: TheoryEvidence[] | undefined) =>
+  (evidence ?? []).map(formatTheoryEvidence);
+
+const getOpeningChapters = (project: TheoryCheckContext) =>
+  project.openingChapterPlan?.chapters ?? [];
+
+const getChapterRange = (project: TheoryCheckContext, start: number, end: number) =>
+  getOpeningChapters(project).filter((chapter) => chapter.chapterNumber >= start && chapter.chapterNumber <= end);
+
+const countFilledChapterValues = (
+  project: TheoryCheckContext,
+  start: number,
+  end: number,
+  key: "readerQuestion" | "sceneTask" | "pressureOrPayoff" | "chapterHook" | "stateChange"
+) => getChapterRange(project, start, end).filter((chapter) => textValue(chapter[key])).length;
+
+const findChapterWithValue = (
+  project: TheoryCheckContext,
+  start: number,
+  end: number,
+  key: "readerQuestion" | "sceneTask" | "pressureOrPayoff" | "chapterHook" | "stateChange"
+) => getChapterRange(project, start, end).find((chapter) => textValue(chapter[key]));
+
+const getNodeDiagnosticText = (node: OutlineNode | undefined) => {
+  if (!node) return "";
+
+  const metadata = node.metadata ?? {};
+  return [
+    node.title,
+    node.content,
+    ...Object.values(metadata).filter((value): value is string => typeof value === "string")
+  ].join("\n");
+};
+
 const getContentGapMessage = (node: OutlineNode | undefined, theoryId: V1TheoryId): string | null => {
   if (!node) return null;
-  const content = node.content.trim();
+  const content = getNodeDiagnosticText(node).trim();
 
   if (!content) {
     return `当前「${getOutlineNodeDisplayTitle(node)}」还没有内容，先补基础信息再判断这个理论点。`;
@@ -227,18 +377,24 @@ const getContentGapMessage = (node: OutlineNode | undefined, theoryId: V1TheoryI
 
 const checkT01 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const act1 = project.outlineNodes.find((n) => n.id === "act-1");
+  const firstChapter = findChapterWithValue(project, 1, 3, "chapterHook");
+  const lastOpeningChapter = findChapterWithValue(project, 24, 30, "stateChange");
   const act1PhaseText = project.outlineNodes
     .filter((node) => node.parentId === "act-1")
     .map((node) => `${node.title}\n${node.content}\n${node.metadata?.readerQuestion ?? ""}\n${node.metadata?.chapterHook ?? ""}`)
     .join("\n");
-  const act1Text = `${act1?.content ?? ""}\n${act1PhaseText}`;
+  const openingChapterText = getOpeningChapters(project)
+    .map((chapter) => `${chapter.title}\n${chapter.readerQuestion}\n${chapter.sceneTask}\n${chapter.chapterHook}\n${chapter.stateChange}`)
+    .join("\n");
+  const act1Text = `${act1?.content ?? ""}\n${act1?.metadata?.volumeGoal ?? ""}\n${act1?.metadata?.miniClimax ?? ""}\n${act1?.metadata?.nextVolumeHook ?? ""}\n${act1PhaseText}\n${openingChapterText}`;
   if (!act1 || !act1Text.trim()) {
     return {
       theoryId: "T01",
       severity: "warning",
       location: "开局篇",
       message: "开局篇内容为空，建议完善黄金开局和开局关门。",
-      rescueOptions: ["添加主角出场场景", "设计救猫咪时刻", "明确开局关门事件"]
+      rescueOptions: ["添加主角出场场景", "设计救猫咪时刻", "明确开局关门事件"],
+      evidence: [buildGapEvidence("缺少开局篇内容", "未看到第一卷目标、前三章钩子或开局关门。", "act-1-empty", "act-1")]
     };
   }
   const missing = getMissingLabels(act1Text, [
@@ -251,7 +407,14 @@ const checkT01 = (project: TheoryCheckContext): TheoryCheckResult | null => {
       severity: "warning",
       location: "开局篇",
       message: `开局篇缺少明确的${missing.join("和")}设计。`,
-      rescueOptions: ["添加黄金开局设计", "设计开局关门事件", "明确主角目标"]
+      rescueOptions: ["添加黄金开局设计", "设计开局关门事件", "明确主角目标"],
+      evidence: collectEvidence(
+        buildFieldEvidence(act1, "第一卷目标", act1?.metadata?.volumeGoal, "volume-goal"),
+        buildFieldEvidence(act1, "小高潮", act1?.metadata?.miniClimax, "mini-climax"),
+        firstChapter ? buildChapterEvidence(firstChapter.chapterNumber, "章末钩子", firstChapter.chapterHook, "hook") : null,
+        lastOpeningChapter ? buildChapterEvidence(lastOpeningChapter.chapterNumber, "状态变化", lastOpeningChapter.stateChange, "state-change") : null,
+        buildGapEvidence("缺少结构点", missing.join("、"), "act-1-missing", "act-1")
+      )
     };
   }
   return null;
@@ -259,22 +422,31 @@ const checkT01 = (project: TheoryCheckContext): TheoryCheckResult | null => {
 
 const checkT02 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const protagonist = project.outlineNodes.find((n) => n.id === "protagonist");
-  if (!protagonist || !protagonist.content?.trim()) {
+  const metadata = protagonist ? getProtagonistMetadata(protagonist) : undefined;
+  const protagonistText = `${protagonist?.content ?? ""}\n${metadata?.identity ?? ""}\n${metadata?.coreDesire ?? ""}\n${metadata?.openingPredicament ?? ""}\n${metadata?.growthArc ?? ""}\n${metadata?.keyRelationships ?? ""}`;
+  if (!protagonist || !protagonistText.trim()) {
     return {
       theoryId: "T02",
       severity: "warning",
       location: "主角设定",
       message: "主角设定为空，建议添加让读者共情的元素。",
-      rescueOptions: ["添加主角困境", "设计救猫咪时刻", "描述主角的底层欲望"]
+      rescueOptions: ["添加主角困境", "设计救猫咪时刻", "描述主角的底层欲望"],
+      evidence: [buildGapEvidence("缺少主角字段", "姓名/身份、底层欲望、开场困境都还没有可判断内容。", "protagonist-empty", "protagonist")]
     };
   }
-  if (!hasAnyKeyword(protagonist.content, protagonistEmpathyKeywords)) {
+  if (!hasAnyKeyword(protagonistText, protagonistEmpathyKeywords)) {
     return {
       theoryId: "T02",
       severity: "warning",
       location: "主角设定",
       message: "主角设定已有内容，但还缺明确的共情入口。",
-      rescueOptions: ["添加让读者心疼的细节", "设计主角的软肋"]
+      rescueOptions: ["添加让读者心疼的细节", "设计主角的软肋"],
+      evidence: collectEvidence(
+        buildFieldEvidence(protagonist, "姓名 / 身份", metadata?.identity, "identity"),
+        buildFieldEvidence(protagonist, "底层欲望", metadata?.coreDesire, "core-desire"),
+        buildFieldEvidence(protagonist, "开场困境", metadata?.openingPredicament, "opening-predicament"),
+        buildGapEvidence("缺少共情入口", "未看到困境、软肋、伤口、不服输或让读者心疼的具体细节。", "protagonist-empathy", "protagonist")
+      )
     };
   }
   return null;
@@ -282,16 +454,22 @@ const checkT02 = (project: TheoryCheckContext): TheoryCheckResult | null => {
 
 const checkT03 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const conflict = project.outlineNodes.find((n) => n.id === "core-conflict");
-  if (!conflict || !conflict.content?.trim()) {
+  const protagonist = project.outlineNodes.find((n) => n.id === "protagonist");
+  const antagonist = project.outlineNodes.find((n) => n.id === "antagonist");
+  const protagonistMetadata = protagonist ? getProtagonistMetadata(protagonist) : undefined;
+  const pressureMetadata = antagonist ? getPressureSourceMetadata(antagonist) : undefined;
+  const conflictText = `${conflict?.content ?? ""}\n${protagonistMetadata?.coreDesire ?? ""}\n${protagonistMetadata?.openingPredicament ?? ""}\n${pressureMetadata?.openingPressure ?? ""}\n${pressureMetadata?.stageBoss ?? ""}\n${pressureMetadata?.pressureEscalation ?? ""}`;
+  if (!conflict || !conflictText.trim()) {
     return {
       theoryId: "T03",
       severity: "fail",
       location: "核心冲突",
       message: "核心冲突为空，故事缺少发动机。",
-      rescueOptions: ["明确主角想要什么", "设计阻碍", "制造期望与现实的差距"]
+      rescueOptions: ["明确主角想要什么", "设计阻碍", "制造期望与现实的差距"],
+      evidence: [buildGapEvidence("缺少冲突发动机", "未看到主角目标、现实阻碍或失败代价。", "conflict-empty", "core-conflict")]
     };
   }
-  const missing = getMissingLabels(conflict.content, [
+  const missing = getMissingLabels(conflictText, [
     { label: "主角想要什么", keywords: conflictGoalKeywords },
     { label: "谁或什么在阻碍", keywords: conflictObstacleKeywords },
     { label: "失败会付出什么代价", keywords: conflictStakesKeywords }
@@ -302,7 +480,14 @@ const checkT03 = (project: TheoryCheckContext): TheoryCheckResult | null => {
       severity: "warning",
       location: "核心冲突",
       message: `核心冲突还缺：${missing.join("、")}。`,
-      rescueOptions: ["明确主角的期望", "设计现实的阻碍", "写清失败代价"]
+      rescueOptions: ["明确主角的期望", "设计现实的阻碍", "写清失败代价"],
+      evidence: collectEvidence(
+        buildOutlineEvidence(conflict, "核心冲突正文", conflict.content, "content"),
+        buildFieldEvidence(protagonist, "主角底层欲望", protagonistMetadata?.coreDesire, "core-desire"),
+        buildFieldEvidence(antagonist, "开局压力源", pressureMetadata?.openingPressure, "opening-pressure"),
+        buildFieldEvidence(antagonist, "压力升级方式", pressureMetadata?.pressureEscalation, "pressure-escalation"),
+        buildGapEvidence("冲突缺口", missing.join("、"), "conflict-missing", "core-conflict")
+      )
     };
   }
   return null;
@@ -316,7 +501,8 @@ const checkT04 = (project: TheoryCheckContext): TheoryCheckResult | null => {
       severity: "warning",
       location: "伏笔与回收",
       message: "未记录伏笔，建议规划伏笔与回收节点。",
-      rescueOptions: ["列出已埋下的设定", "规划回收节点", "检查是否有未回收的伏笔"]
+      rescueOptions: ["列出已埋下的设定", "规划回收节点", "检查是否有未回收的伏笔"],
+      evidence: [buildGapEvidence("缺少伏笔表", "未看到埋线、回收节点或引爆条件。", "foreshadowing-empty", "foreshadowing")]
     };
   }
   const missing = getMissingLabels(foreshadowing.content, [
@@ -329,7 +515,11 @@ const checkT04 = (project: TheoryCheckContext): TheoryCheckResult | null => {
       severity: "warning",
       location: "伏笔与回收",
       message: `伏笔已有记录，但还缺：${missing.join("、")}。`,
-      rescueOptions: ["标注在哪个阶段回收", "写清揭晓方式", "把伏笔和核心冲突绑定"]
+      rescueOptions: ["标注在哪个阶段回收", "写清揭晓方式", "把伏笔和核心冲突绑定"],
+      evidence: collectEvidence(
+        buildOutlineEvidence(foreshadowing, "伏笔正文", foreshadowing.content, "content"),
+        buildGapEvidence("伏笔缺口", missing.join("、"), "foreshadowing-missing", "foreshadowing")
+      )
     };
   }
   return null;
@@ -338,19 +528,24 @@ const checkT04 = (project: TheoryCheckContext): TheoryCheckResult | null => {
 const checkT07 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const serialNodes = project.outlineNodes.filter((node) => node.kind === "act" || node.kind === "arcPhase");
   const serialText = serialNodes
-    .map((node) => `${node.content}\n${node.metadata?.payoffBeat ?? ""}\n${node.metadata?.chapterHook ?? ""}`)
+    .map((node) => `${node.content}\n${node.metadata?.pressureSource ?? ""}\n${node.metadata?.payoffBeat ?? ""}\n${node.metadata?.chapterHook ?? ""}\n${node.metadata?.stateChange ?? ""}`)
     .join("\n");
+  const openingPlanText = getOpeningChapters(project)
+    .map((chapter) => `${chapter.readerQuestion}\n${chapter.sceneTask}\n${chapter.pressureOrPayoff}\n${chapter.chapterHook}\n${chapter.stateChange}`)
+    .join("\n");
+  const rhythmText = `${serialText}\n${openingPlanText}`;
 
-  if (serialNodes.length === 0 || !serialText.trim()) {
+  if (serialNodes.length === 0 || !rhythmText.trim()) {
     return {
       theoryId: "T07",
       severity: "warning",
       location: "卷纲",
       message: "卷纲内容为空，建议设计长篇爽点循环链。",
-      rescueOptions: ["设计压制→准备→爆发循环", "添加收获后的新危机", "规划升级地图或副本"]
+      rescueOptions: ["设计压制→准备→爆发循环", "添加收获后的新危机", "规划升级地图或副本"],
+      evidence: [buildGapEvidence("缺少卷纲节奏", "未看到阶段压力、爆发、收获、新危机或前 30 章计划。", "rhythm-empty", "act-1")]
     };
   }
-  const cycleGroups = countKeywordGroups(serialText, [
+  const cycleGroups = countKeywordGroups(rhythmText, [
     ["憋屈", "压制", "吃亏", "羞辱"],
     ["准备", "布局", "修炼", "蓄力"],
     ["爆发", "打脸", "反击", "翻盘"],
@@ -359,12 +554,22 @@ const checkT07 = (project: TheoryCheckContext): TheoryCheckResult | null => {
     ["新地图", "副本", "势力争夺", "资源争夺"]
   ]);
   if (cycleGroups < 3) {
+    const firstHookChapter = findChapterWithValue(project, 1, 10, "chapterHook");
+    const firstPayoffChapter = findChapterWithValue(project, 1, 15, "pressureOrPayoff");
+    const hookCount = countFilledChapterValues(project, 1, 30, "chapterHook");
+    const stateChangeCount = countFilledChapterValues(project, 1, 30, "stateChange");
     return {
       theoryId: "T07",
       severity: "warning",
       location: "卷纲",
       message: "卷纲已有内容，但爽点循环链还不完整。",
-      rescueOptions: ["添加压制或吃亏情节", "设计爆发时刻", "规划新地图、新副本或新危机"]
+      rescueOptions: ["添加压制或吃亏情节", "设计爆发时刻", "规划新地图、新副本或新危机"],
+      evidence: collectEvidence(
+        buildFieldEvidence(serialNodes.find((node) => node.id === "act-1"), "开局篇小高潮", serialNodes.find((node) => node.id === "act-1")?.metadata?.miniClimax, "mini-climax"),
+        firstPayoffChapter ? buildChapterEvidence(firstPayoffChapter.chapterNumber, "压力 / 爽点", firstPayoffChapter.pressureOrPayoff, "pressure-or-payoff") : null,
+        firstHookChapter ? buildChapterEvidence(firstHookChapter.chapterNumber, "章末钩子", firstHookChapter.chapterHook, "hook") : null,
+        buildGapEvidence("前 30 章密度", `章末钩子 ${hookCount}/30，状态变化 ${stateChangeCount}/30；需要形成压制、爆发、收获、新危机的循环。`, "opening-plan-density", "act-1")
+      )
     };
   }
   return null;
@@ -372,16 +577,19 @@ const checkT07 = (project: TheoryCheckContext): TheoryCheckResult | null => {
 
 const checkT11 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const power = project.outlineNodes.find((n) => n.id === "golden-finger");
-  if (!power || !power.content?.trim()) {
+  const metadata = power ? getGoldenFingerMetadata(power) : undefined;
+  const powerText = `${power?.content ?? ""}\n${metadata?.abilityCore ?? ""}\n${metadata?.limitation ?? ""}\n${metadata?.cost ?? ""}\n${metadata?.upgradePath ?? ""}\n${metadata?.backlashRisk ?? ""}`;
+  if (!power || !powerText.trim()) {
     return {
       theoryId: "T11",
       severity: "warning",
       location: "金手指/力量体系",
       message: "力量体系为空，建议明确代价和限制。",
-      rescueOptions: ["明确力量来源", "设计使用代价", "添加限制条件"]
+      rescueOptions: ["明确力量来源", "设计使用代价", "添加限制条件"],
+      evidence: [buildGapEvidence("缺少金手指字段", "未看到能力核心、限制条件或使用代价。", "golden-finger-empty", "golden-finger")]
     };
   }
-  const missing = getMissingLabels(power.content, [
+  const missing = getMissingLabels(powerText, [
     { label: "力量来源", keywords: powerSourceKeywords },
     { label: "代价或限制", keywords: powerBoundaryKeywords }
   ]);
@@ -391,7 +599,14 @@ const checkT11 = (project: TheoryCheckContext): TheoryCheckResult | null => {
       severity: "warning",
       location: "金手指/力量体系",
       message: `力量体系还缺：${missing.join("、")}。`,
-      rescueOptions: ["补清力量来源", "添加使用代价", "设置限制或反噬"]
+      rescueOptions: ["补清力量来源", "添加使用代价", "设置限制或反噬"],
+      evidence: collectEvidence(
+        buildFieldEvidence(power, "能力核心", metadata?.abilityCore, "ability-core"),
+        buildFieldEvidence(power, "限制条件", metadata?.limitation, "limitation"),
+        buildFieldEvidence(power, "使用代价", metadata?.cost, "cost"),
+        buildFieldEvidence(power, "失控风险", metadata?.backlashRisk, "backlash-risk"),
+        buildGapEvidence("力量边界缺口", missing.join("、"), "golden-finger-missing", "golden-finger")
+      )
     };
   }
   return null;
@@ -399,19 +614,29 @@ const checkT11 = (project: TheoryCheckContext): TheoryCheckResult | null => {
 
 const checkT12 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const power = project.outlineNodes.find((n) => n.id === "golden-finger");
-  if (!power || !power.content?.trim()) {
+  const metadata = power ? getGoldenFingerMetadata(power) : undefined;
+  const openingChapterText = getOpeningChapters(project)
+    .map((chapter) => `${chapter.pressureOrPayoff}\n${chapter.requiredFactIds.join(" ")}\n${chapter.stateChange}`)
+    .join("\n");
+  const powerText = `${power?.content ?? ""}\n${metadata?.abilityCore ?? ""}\n${metadata?.limitation ?? ""}\n${metadata?.cost ?? ""}\n${metadata?.upgradePath ?? ""}\n${metadata?.backlashRisk ?? ""}\n${openingChapterText}`;
+  if (!power || !powerText.trim()) {
     return null;
   }
   const repeatedPatterns = ["无敌", "秒杀", "碾压", "天下第一", "一直赢", "每次都", "重复", "同样"];
-  const hasRepeated = repeatedPatterns.some((pattern) => power.content?.includes(pattern));
-  const hasProgression = hasAnyKeyword(power.content, powerProgressionKeywords);
+  const hasRepeated = repeatedPatterns.some((pattern) => powerText.includes(pattern));
+  const hasProgression = hasAnyKeyword(powerText, powerProgressionKeywords);
   if (hasRepeated && !hasProgression) {
     return {
       theoryId: "T12",
       severity: "warning",
       location: "金手指/力量体系",
       message: "力量体系描述过于重复，读者会麻木。",
-      rescueOptions: ["添加差异化战斗方式", "设计新挑战", "引入新限制"]
+      rescueOptions: ["添加差异化战斗方式", "设计新挑战", "引入新限制"],
+      evidence: collectEvidence(
+        buildOutlineEvidence(power, "重复表达", repeatedPatterns.find((pattern) => powerText.includes(pattern)) ?? "重复爽点", "repeated-pattern"),
+        buildFieldEvidence(power, "升级方式", metadata?.upgradePath, "upgrade-path"),
+        buildGapEvidence("缺少变化", "看到重复强爽表达，但没有同步看到升级、阶段、解锁、突破或挑战变形。", "repeated-power", "golden-finger")
+      )
     };
   }
   return null;
@@ -420,16 +645,19 @@ const checkT12 = (project: TheoryCheckContext): TheoryCheckResult | null => {
 const checkT13 = (project: TheoryCheckContext): TheoryCheckResult | null => {
   const world = project.outlineNodes.find((n) => n.id === "world");
   const antagonist = project.outlineNodes.find((n) => n.id === "antagonist");
-  if (!world || !world.content?.trim()) {
+  const pressureMetadata = antagonist ? getPressureSourceMetadata(antagonist) : undefined;
+  const worldText = `${world?.content ?? ""}\n${pressureMetadata?.openingPressure ?? ""}\n${pressureMetadata?.stageBoss ?? ""}\n${pressureMetadata?.systemPressure ?? ""}\n${pressureMetadata?.finalOpponent ?? ""}\n${pressureMetadata?.pressureEscalation ?? ""}`;
+  if (!world || !worldText.trim()) {
     return {
       theoryId: "T13",
       severity: "warning",
       location: "世界生态",
       message: "世界观为空，势力、规则和职业还没有落到生态位上。",
-      rescueOptions: ["补充主要势力", "写清世界规则", "说明关键职业或资源的存在理由"]
+      rescueOptions: ["补充主要势力", "写清世界规则", "说明关键职业或资源的存在理由"],
+      evidence: [buildGapEvidence("缺少世界生态", "未看到势力、资源、规则、职业或利益冲突。", "world-empty", "world")]
     };
   }
-  const worldGroups = countKeywordGroups(world.content, [
+  const worldGroups = countKeywordGroups(worldText, [
     worldFactionKeywords,
     worldRuleKeywords,
     worldResourceKeywords,
@@ -442,25 +670,42 @@ const checkT13 = (project: TheoryCheckContext): TheoryCheckResult | null => {
       severity: "warning",
       location: "世界生态",
       message: "世界观已有概念，但势力、资源、规则、职业和利益冲突还没有形成生态。",
-      rescueOptions: ["补一组主要势力", "明确稀缺资源", "说明规则如何影响普通人和主角"]
+      rescueOptions: ["补一组主要势力", "明确稀缺资源", "说明规则如何影响普通人和主角"],
+      evidence: collectEvidence(
+        buildOutlineEvidence(world, "世界观正文", world.content, "content"),
+        buildFieldEvidence(antagonist, "制度 / 势力压力", pressureMetadata?.systemPressure, "system-pressure"),
+        buildFieldEvidence(antagonist, "压力升级方式", pressureMetadata?.pressureEscalation, "pressure-escalation"),
+        buildGapEvidence("生态缺口", "势力、资源、规则、职业、利益冲突至少需要形成两类以上的互相牵制。", "world-ecology", "world")
+      )
     };
   }
-  if (!antagonist || !antagonist.content?.trim()) {
+  const antagonistText = `${antagonist?.content ?? ""}\n${pressureMetadata?.openingPressure ?? ""}\n${pressureMetadata?.stageBoss ?? ""}\n${pressureMetadata?.systemPressure ?? ""}\n${pressureMetadata?.pressureEscalation ?? ""}`;
+  if (!antagonist || !antagonistText.trim()) {
     return {
       theoryId: "T13",
       severity: "warning",
       location: "反派/压力源",
       message: "反派/压力源为空，建议先写清开局阶段压住主角的力量。",
-      rescueOptions: ["明确阶段性压力来源", "设计压力源的目标或立场", "给压力源不可替代的位置"]
+      rescueOptions: ["明确阶段性压力来源", "设计压力源的目标或立场", "给压力源不可替代的位置"],
+      evidence: collectEvidence(
+        buildOutlineEvidence(world, "世界观正文", world.content, "content"),
+        buildGapEvidence("缺少压力源", "未看到开局压力源、阶段 boss、制度压力或压力升级方式。", "pressure-source-empty", "antagonist")
+      )
     };
   }
-  if (!hasAnyKeyword(antagonist.content, [...conflictGoalKeywords, "动机", "理由", "立场", "利益"])) {
+  if (!hasAnyKeyword(antagonistText, [...conflictGoalKeywords, "动机", "理由", "立场", "利益"])) {
     return {
       theoryId: "T13",
       severity: "warning",
       location: "反派/压力源",
       message: "反派/压力源已有内容，但还缺足够合理的目标或立场。",
-      rescueOptions: ["给压力源一个合理动机", "设计阶段反派的立场"]
+      rescueOptions: ["给压力源一个合理动机", "设计阶段反派的立场"],
+      evidence: collectEvidence(
+        buildFieldEvidence(antagonist, "开局压力源", pressureMetadata?.openingPressure, "opening-pressure"),
+        buildFieldEvidence(antagonist, "阶段 boss", pressureMetadata?.stageBoss, "stage-boss"),
+        buildFieldEvidence(antagonist, "制度 / 势力压力", pressureMetadata?.systemPressure, "system-pressure"),
+        buildGapEvidence("压力源动机缺口", "未看到目标、动机、理由、立场或利益绑定。", "pressure-source-motivation", "antagonist")
+      )
     };
   }
   return null;
@@ -516,7 +761,7 @@ export const matchTheorySuggestions = (
   const selectedNode = selectedNodeId
     ? project.outlineNodes.find((node) => node.id === selectedNodeId)
     : undefined;
-  const selectedNodeText = selectedNode ? `${selectedNode.title}\n${selectedNode.content}` : "";
+  const selectedNodeText = getNodeDiagnosticText(selectedNode);
   const relevantTheoryIds = getRelevantTheoryIdsForNode(selectedNode);
   const checkResultByTheoryId = new Map(
     runTheoryChecks(project).map((result) => [result.theoryId, result])
@@ -536,12 +781,14 @@ export const matchTheorySuggestions = (
       let location = selectedNode?.title ?? "全局大纲";
       let message = theorySuggestMessages[theoryId];
       let rescueOptions = theoryRescueDefaults[theoryId];
+      let evidence: TheoryEvidence[] = [];
 
       if (checkResult) {
         severity = checkResult.severity;
         location = checkResult.location;
         message = checkResult.message;
         rescueOptions = checkResult.rescueOptions;
+        evidence = checkResult.evidence ?? [];
         score += severityScore[checkResult.severity];
 
         if (checkResult.severity === "fail") {
@@ -555,6 +802,7 @@ export const matchTheorySuggestions = (
 
       if (relevant) {
         score += 40;
+        score += theoryFocusPriority[theoryId] / 10;
         addReason(reasons, "node_relevant");
         if (level === "hidden") {
           level = "suggest_check";
@@ -562,12 +810,19 @@ export const matchTheorySuggestions = (
       }
 
       if (keywordHit) {
+        const keyword = theoryKeywordRules[theoryId].find((item) => selectedNodeText.includes(item));
         score += 15;
         addReason(reasons, "keyword_hit");
-        if (level === "hidden") {
+        evidence = collectEvidence(
+          ...evidence,
+          selectedNode && keyword
+            ? buildOutlineEvidence(selectedNode, "关键词命中", keyword, `keyword-${keyword}`)
+            : null
+        );
+        if (level === "hidden" && relevant) {
           level = "suggest_check";
           location = selectedNode?.title ?? location;
-          message = `当前节点出现了「${theoryKeywordRules[theoryId].find((keyword) => selectedNodeText.includes(keyword))}」相关表达，建议顺手复查这个理论点。`;
+          message = `当前节点出现了「${keyword}」相关表达，建议顺手复查这个理论点。`;
         }
       }
 
@@ -582,6 +837,12 @@ export const matchTheorySuggestions = (
           message = contentGapMessage;
           rescueOptions = theoryRescueDefaults[theoryId];
         }
+        evidence = collectEvidence(
+          ...evidence,
+          selectedNode
+            ? buildGapEvidence("当前节点缺口", contentGapMessage, `${theoryId}-content-gap`, selectedNode.id)
+            : null
+        );
       }
 
       return {
@@ -592,6 +853,7 @@ export const matchTheorySuggestions = (
         reasons,
         message,
         rescueOptions,
+        evidence,
         score
       };
     })
@@ -613,7 +875,7 @@ export const runTheoryChecksWithExplanations = async (project: Project): Promise
         status: result.severity,
         location: result.location,
         reason: result.message,
-        evidence: []
+        evidence: formatEvidenceForLlm(result.evidence)
       });
       return {
         ...result,

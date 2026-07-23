@@ -1,6 +1,12 @@
 import type {
+  OpeningChapterGapFillInput,
+  OpeningChapterGapFillOutput,
+  OpeningChapterDraftGenerationInput,
+  OpeningChapterDraftGenerationOutput,
   OutlineNodeEnhancementInput,
   OutlineNodeEnhancementOutput,
+  OpeningChapterPlanGenerationInput,
+  OpeningChapterPlanGenerationOutput,
   RuleCheckResult,
   SeedIgnitionInput,
   SeedIgnitionOutput,
@@ -25,6 +31,9 @@ export type LlmProvider = {
   analyzeTastePreference: (choices: TasteChoice[]) => Promise<UserPreference>;
   igniteSeed: (input: SeedIgnitionInput) => Promise<SeedIgnitionOutput>;
   enhanceOutlineNode: (input: OutlineNodeEnhancementInput) => Promise<OutlineNodeEnhancementOutput>;
+  generateOpeningChapterPlan: (input: OpeningChapterPlanGenerationInput) => Promise<OpeningChapterPlanGenerationOutput>;
+  generateOpeningChapterDraft: (input: OpeningChapterDraftGenerationInput) => Promise<OpeningChapterDraftGenerationOutput>;
+  fillOpeningChapterGap: (input: OpeningChapterGapFillInput) => Promise<OpeningChapterGapFillOutput>;
   explainTheoryCheck: (result: RuleCheckResult) => Promise<TheorySuggestion>;
   extractSettingKeywords: (text: string) => Promise<string[]>;
 };

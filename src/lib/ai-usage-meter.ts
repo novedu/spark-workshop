@@ -3,6 +3,9 @@ import type { LlmResultMeta } from "@/types/product";
 export type AiUsageOperationId =
   | "igniteSeed"
   | "enhanceOutlineNode"
+  | "generateOpeningChapterPlan"
+  | "generateOpeningChapterDraft"
+  | "fillOpeningChapterGap"
   | "explainTheoryCheck"
   | "generateTasteSamples"
   | "analyzeTastePreference"
@@ -49,6 +52,9 @@ const maxStoredRuns = 80;
 const estimatedTokensByOperation: Record<AiUsageOperationId, number> = {
   igniteSeed: 1800,
   enhanceOutlineNode: 700,
+  generateOpeningChapterPlan: 4200,
+  generateOpeningChapterDraft: 3200,
+  fillOpeningChapterGap: 1100,
   explainTheoryCheck: 700,
   generateTasteSamples: 2200,
   analyzeTastePreference: 500,
@@ -58,6 +64,9 @@ const estimatedTokensByOperation: Record<AiUsageOperationId, number> = {
 const operationIds: AiUsageOperationId[] = [
   "igniteSeed",
   "enhanceOutlineNode",
+  "generateOpeningChapterPlan",
+  "generateOpeningChapterDraft",
+  "fillOpeningChapterGap",
   "explainTheoryCheck",
   "generateTasteSamples",
   "analyzeTastePreference",

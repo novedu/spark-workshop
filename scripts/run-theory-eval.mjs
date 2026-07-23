@@ -33,6 +33,7 @@ Module._extensions[".ts"] = function compileTypeScript(module, filename) {
 const { evaluateTheorySamples } = require("../src/lib/theory-eval-samples.ts");
 const results = evaluateTheorySamples();
 const failed = results.filter((result) => !result.passed);
+const minSampleCount = 10;
 
 console.table(
   results.map((result) => ({
@@ -42,6 +43,11 @@ console.table(
     needsFix: result.needsFixIds.join(",") || "-"
   }))
 );
+
+if (results.length < minSampleCount) {
+  console.error(`Expected at least ${minSampleCount} theory eval samples, got ${results.length}.`);
+  process.exit(1);
+}
 
 if (failed.length > 0) {
   console.error(JSON.stringify(failed, null, 2));
