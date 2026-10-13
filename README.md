@@ -1,5 +1,9 @@
 # 灵光一闪 AI创意工坊
 
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Next.js](https://img.shields.io/badge/Next.js-App%20Router-black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.6%2B-3178c6)
+
 AI 驱动的网文写作辅助工具：从一句话灵感出发，生成三个世界观方向，进入可编辑大纲，并通过理论引擎检测帮你发现故事可能崩盘的地方。
 > **一句话定位**：把「我有个想法」推进到「可以开书」，中间那段最费脑力的结构工程，交给 AI 辅助完成。
 
@@ -151,6 +155,9 @@ V1 首批接入 8 个基础理论引擎，实时检测大纲质量：
 
 ## 快速开始
 
+<!-- TODO: 建议补 1 个 10–20 秒 GIF，展示"一句话灵感 → 3 个世界观方案 → 大纲编辑器"的完整流程 -->
+
+
 ```bash
 # 安装依赖
 npm install
@@ -160,6 +167,56 @@ npm run dev
 ```
 
 访问 http://localhost:3000 即可使用。首次进入会触发味觉测试，完成后进入项目列表。
+
+## LLM 接入方式（真实调用）
+
+本项目**真实调用大模型**，不是 mock 演示。架构上是「服务端代理」模式：
+前端不接触 API Key，所有模型请求经 Next.js Route Handler 转发。
+
+### 请求链路
+
+```text
+React 客户端
+  → src/lib/llm/client-provider.ts
+  → POST /api/llm/*
+  → src/lib/llm/server-provider.ts
+  → src/lib/llm/adapters.ts  ← 真实 fetch
+  → OpenAI 兼容网关
+```
+
+真实 HTTP 调用在 `src/lib/llm/adapters.ts`：
+
+```ts
+const response = await fetch(`${this.config.baseUrl}/chat/completions`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${this.config.apiKey}`, ... },
+})
+```
+
+默认 `baseUrl = https://api.openai.com/v1`，因为是 OpenAI **兼容协议**，
+改 `LLM_BASE_URL` 即可对接 DeepSeek / Qwen 等网关。
+
+### 9 个服务端代理路由
+
+| 路由 | 作用 |
+|---|---|
+| `api/llm/ignite-seed` | 灵感引爆：一句话生成 3 个世界观方向 |
+| `api/llm/analyze-taste-preference` | 味觉测试：分析阅读偏好画像 |
+| `api/llm/generate-taste-samples` | 生成 6 段口味样本 |
+| `api/llm/enhance-outline-node` | 大纲节点 AI 补全 |
+| `api/llm/generate-opening-chapter-plan` | 生成前 30 章节奏表 |
+| `api/llm/generate-opening-chapter-draft` | 生成当前章正文草稿 |
+| `api/llm/fill-opening-chapter-gap` | 针对本地检查缺口做局部补写 |
+| `api/llm/explain-theory-check` | 解释理论检测结果 |
+| `api/llm/health` | 模型连通性检查 |
+
+### 实现边界（如实说明）
+
+- **Prompt 模板库**在 `src/lib/prompts/`，所有提示词集中管理，不散落在组件里
+- **Mock 模式**：未配置 `LLM_API_KEY` 或设置 `LLM_USE_MOCK=true` 时，走 `src/lib/llm/mock-provider.ts`
+  返回预设内容，**不会伪装成真实模型输出**，用于本地开发
+- **Claude / Ollama 适配器类型已声明，但尚未完成真实实现**（当前真实链路优先支持 OpenAI 兼容协议）
+- 本项目**暂无自动化测试与 CI**
 
 ## 配置
 
