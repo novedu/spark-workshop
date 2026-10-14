@@ -168,9 +168,9 @@ npm run dev
 
 访问 http://localhost:3000 即可使用。首次进入会触发味觉测试，完成后进入项目列表。
 
-## LLM 接入方式（真实调用）
+## LLM 接入
 
-本项目**真实调用大模型**，不是 mock 演示。架构上是「服务端代理」模式：
+本项目直接调用大模型，架构上是「服务端代理」模式：
 前端不接触 API Key，所有模型请求经 Next.js Route Handler 转发。
 
 ### 请求链路
@@ -210,11 +210,11 @@ const response = await fetch(`${this.config.baseUrl}/chat/completions`, {
 | `api/llm/explain-theory-check` | 解释理论检测结果 |
 | `api/llm/health` | 模型连通性检查 |
 
-### 实现边界（如实说明）
+### 实现说明
 
 - **Prompt 模板库**在 `src/lib/prompts/`，所有提示词集中管理，不散落在组件里
 - **Mock 模式**：未配置 `LLM_API_KEY` 或设置 `LLM_USE_MOCK=true` 时，走 `src/lib/llm/mock-provider.ts`
-  返回预设内容，**不会伪装成真实模型输出**，用于本地开发
+  返回预设内容，用于本地开发与离线演示
 - **Claude / Ollama 适配器类型已声明，但尚未完成真实实现**（当前真实链路优先支持 OpenAI 兼容协议）
 - 本项目**暂无自动化测试与 CI**
 
@@ -330,7 +330,7 @@ spark-workshop/
 - `fillOpeningChapterGap`: 针对一个本地检查缺口生成局部正文候选
 - `explainTheoryCheck`: 解释理论检测结果
 
-当前真实链路优先支持 OpenAI-compatible Chat Completions。其他 provider 类型用于后续扩展，不代表已经可用。
+当前真实链路优先支持 OpenAI-compatible Chat Completions。其他 provider 类型为后续扩展预留。
 
 ## 数据存储
 
